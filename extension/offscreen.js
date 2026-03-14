@@ -3,6 +3,7 @@
 
 let mediaRecorder = null;
 let recordedChunks = [];
+let audioContext = null;
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.target !== 'offscreen') return;
@@ -31,9 +32,16 @@ async function startRecording(streamId) {
       },
     });
 
+    // Route audio back to speakers so the user can still hear the meeting.
+    // Without this, tab audio capture intercepts the audio and the user hears silence.
+    audioContext = new AudioContext();
+    const source = audioContext.createMediaStreamSource(stream);
+    source.connect(audioContext.destination);
+
     recordedChunks = [];
     mediaRecorder = new MediaRecorder(stream, {
       mimeType: 'audio/webm;codecs=opus',
+      audioBitsPerSecond: 64000,
     });
 
     mediaRecorder.ondataavailable = (event) => {
@@ -86,4 +94,8 @@ function cancelRecording() {
     mediaRecorder.stop();
   }
   recordedChunks = [];
+  if (audioContext) {
+    audioContext.close();
+    audioContext = null;
+  }
 }
