@@ -12,7 +12,7 @@ router.post('/', async (req, res) => {
     return res.status(400).json({ error: 'meetingId is required' });
   }
 
-  const meeting = getMeeting(meetingId);
+  const meeting = await getMeeting(meetingId);
   if (!meeting) {
     return res.status(404).json({ error: 'Meeting not found' });
   }
@@ -23,7 +23,7 @@ router.post('/', async (req, res) => {
 
   try {
     const transcript = await transcribe(meeting.audio_path);
-    updateTranscript(meetingId, transcript);
+    await updateTranscript(meetingId, transcript);
 
     res.json({ meetingId, transcript });
   } catch (err) {

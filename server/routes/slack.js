@@ -19,7 +19,7 @@ router.post('/send', async (req, res) => {
     });
   }
 
-  const meeting = getMeeting(meetingId);
+  const meeting = await getMeeting(meetingId);
   if (!meeting) {
     return res.status(404).json({ error: 'Meeting not found' });
   }
@@ -30,11 +30,11 @@ router.post('/send', async (req, res) => {
 
   try {
     if (callType) {
-      updateCallType(meetingId, callType);
+      await updateCallType(meetingId, callType);
     }
 
     await postToSlack(meeting.summary, callType || meeting.call_type || 'internal');
-    markSlackPosted(meetingId);
+    await markSlackPosted(meetingId);
 
     res.json({ success: true, meetingId });
   } catch (err) {

@@ -11,9 +11,6 @@ if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
 
-// Initialize database
-require('./db/schema').getDb();
-
 const app = express();
 
 // Middleware
@@ -38,7 +35,15 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: err.message || 'Internal server error' });
 });
 
+// Initialize DB then start server
+const { getDb } = require('./db/schema');
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Finrep Meeting Intelligence server running on port ${PORT}`);
+
+getDb().then(() => {
+  app.listen(PORT, () => {
+    console.log(`Finrep Meeting Intelligence server running on port ${PORT}`);
+  });
+}).catch((err) => {
+  console.error('Failed to initialize database:', err);
+  process.exit(1);
 });

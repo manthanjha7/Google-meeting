@@ -1,80 +1,94 @@
-const { getDb } = require('./schema');
+const { getDb, saveDb } = require('./schema');
 
-function createMeeting(id, audioPath, durationSeconds = null) {
-  const db = getDb();
-  db.prepare(`
-    INSERT INTO meetings (id, audio_path, duration_seconds)
-    VALUES (?, ?, ?)
-  `).run(id, audioPath, durationSeconds);
+async function createMeeting(id, audioPath, durationSeconds = null) {
+  const db = await getDb();
+  db.run(
+    `INSERT INTO meetings (id, audio_path, duration_seconds) VALUES (?, ?, ?)`,
+    [id, audioPath, durationSeconds]
+  );
+  saveDb();
   return getMeeting(id);
 }
 
-function updateTranscript(id, transcript) {
-  const db = getDb();
-  db.prepare(`
-    UPDATE meetings
-    SET transcript = ?, updated_at = datetime('now')
-    WHERE id = ?
-  `).run(transcript, id);
+async function updateTranscript(id, transcript) {
+  const db = await getDb();
+  db.run(
+    `UPDATE meetings SET transcript = ?, updated_at = datetime('now') WHERE id = ?`,
+    [transcript, id]
+  );
+  saveDb();
   return getMeeting(id);
 }
 
-function updateSummary(id, summaryObj) {
-  const db = getDb();
+async function updateSummary(id, summaryObj) {
+  const db = await getDb();
   const summaryJson = JSON.stringify(summaryObj);
   const title = summaryObj.title || null;
   const participants = summaryObj.participants
     ? JSON.stringify(summaryObj.participants)
     : null;
 
-  db.prepare(`
-    UPDATE meetings
-    SET summary = ?, title = ?, participants = ?, updated_at = datetime('now')
-    WHERE id = ?
-  `).run(summaryJson, title, participants, id);
+  db.run(
+    `UPDATE meetings SET summary = ?, title = ?, participants = ?, updated_at = datetime('now') WHERE id = ?`,
+    [summaryJson, title, participants, id]
+  );
+  saveDb();
   return getMeeting(id);
 }
 
-function updateCallType(id, callType) {
-  const db = getDb();
-  db.prepare(`
-    UPDATE meetings
-    SET call_type = ?, updated_at = datetime('now')
-    WHERE id = ?
-  `).run(callType, id);
+async function updateCallType(id, callType) {
+  const db = await getDb();
+  db.run(
+    `UPDATE meetings SET call_type = ?, updated_at = datetime('now') WHERE id = ?`,
+    [callType, id]
+  );
+  saveDb();
   return getMeeting(id);
 }
 
-function markSlackPosted(id) {
-  const db = getDb();
-  db.prepare(`
-    UPDATE meetings
-    SET slack_posted = 1, updated_at = datetime('now')
-    WHERE id = ?
-  `).run(id);
+async function markSlackPosted(id) {
+  const db = await getDb();
+  db.run(
+    `UPDATE meetings SET slack_posted = 1, updated_at = datetime('now') WHERE id = ?`,
+    [id]
+  );
+  saveDb();
   return getMeeting(id);
 }
 
-function getMeeting(id) {
-  const db = getDb();
-  const row = db.prepare('SELECT * FROM meetings WHERE id = ?').get(id);
-  if (!row) return null;
-  return parseMeetingRow(row);
+async function getMeeting(id) {
+  const db = await getDb();
+  const stmt = db.prepare('SELECT * FROM meetings WHERE id = ?');
+  stmt.bind([id]);
+  if (stmt.step()) {
+    const row = stmt.getAsObject();
+    stmt.free();
+    return parseMeetingRow(row);
+  }
+  stmt.free();
+  return null;
 }
 
-function listMeetings(callType = null) {
-  const db = getDb();
-  let query = 'SELECT * FROM meetings';
-  const params = [];
+async function listMeetings(callType = null) {
+  const db = await getDb();
+  let results = [];
 
   if (callType) {
-    query += ' WHERE call_type = ?';
-    params.push(callType);
+    const stmt = db.prepare('SELECT * FROM meetings WHERE call_type = ? ORDER BY created_at DESC');
+    stmt.bind([callType]);
+    while (stmt.step()) {
+      results.push(parseMeetingRow(stmt.getAsObject()));
+    }
+    stmt.free();
+  } else {
+    const stmt = db.prepare('SELECT * FROM meetings ORDER BY created_at DESC');
+    while (stmt.step()) {
+      results.push(parseMeetingRow(stmt.getAsObject()));
+    }
+    stmt.free();
   }
 
-  query += ' ORDER BY created_at DESC';
-  const rows = db.prepare(query).all(...params);
-  return rows.map(parseMeetingRow);
+  return results;
 }
 
 function parseMeetingRow(row) {

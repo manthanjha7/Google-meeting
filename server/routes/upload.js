@@ -30,7 +30,7 @@ const upload = multer({
 });
 
 // POST /api/upload
-router.post('/', upload.single('audio'), (req, res) => {
+router.post('/', upload.single('audio'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No audio file provided' });
   }
@@ -40,7 +40,7 @@ router.post('/', upload.single('audio'), (req, res) => {
     ? parseInt(req.body.durationSeconds, 10)
     : null;
 
-  const meeting = createMeeting(meetingId, req.file.path, durationSeconds);
+  const meeting = await createMeeting(meetingId, req.file.path, durationSeconds);
 
   res.json({
     meetingId: meeting.id,
