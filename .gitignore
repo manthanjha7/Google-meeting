@@ -4,5 +4,9 @@ dist/
 *.mp3
 *.wav
 *.log
+*.db
+*.db-shm
+*.db-wal
 .DS_Store
 coverage/
+uploads/
