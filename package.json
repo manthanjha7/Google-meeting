@@ -1,0 +1,19 @@
+{
+  "name": "finrep-meeting-intelligence",
+  "version": "1.0.0",
+  "description": "Meeting intelligence pipeline: Chrome extension + backend for recording Google Meet, transcribing via Sarvam STT, summarizing via Claude, and posting to Slack",
+  "private": true,
+  "scripts": {
+    "server": "node server/index.js",
+    "dev": "node --watch server/index.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.52.0",
+    "express": "^4.21.0",
+    "multer": "^1.4.5-lts.1",
+    "cors": "^2.8.5",
+    "better-sqlite3": "^11.7.0",
+    "dotenv": "^16.4.7",
+    "uuid": "^11.0.0"
+  }
+}

@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Finrep Meeting Intelligence</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Finrep Meeting Intelligence</h1>
+    </header>
+
+    <!-- Idle State -->
+    <div id="state-idle" class="state">
+      <div class="status-icon idle-icon">&#9679;</div>
+      <p class="status-text">No active meeting detected</p>
+      <p class="hint">Open a Google Meet to start recording automatically</p>
+    </div>
+
+    <!-- Recording State -->
+    <div id="state-recording" class="state hidden">
+      <div class="status-icon recording-icon">&#9679;</div>
+      <p class="status-text">Recording in progress</p>
+      <p id="recording-timer" class="timer">00:00:00</p>
+      <div class="button-group">
+        <button id="btn-stop" class="btn btn-primary">Stop Recording</button>
+        <button id="btn-cancel" class="btn btn-secondary">Cancel</button>
+      </div>
+    </div>
+
+    <!-- Processing State -->
+    <div id="state-processing" class="state hidden">
+      <div class="spinner"></div>
+      <p id="processing-step" class="status-text">Processing...</p>
+      <div class="progress-steps">
+        <span id="step-uploading" class="step">Upload</span>
+        <span class="step-arrow">&rarr;</span>
+        <span id="step-transcribing" class="step">Transcribe</span>
+        <span class="step-arrow">&rarr;</span>
+        <span id="step-summarizing" class="step">Summarize</span>
+      </div>
+    </div>
+
+    <!-- Summary Ready State -->
+    <div id="state-summary" class="state hidden">
+      <h2 id="summary-title" class="summary-title"></h2>
+      <div id="summary-content" class="summary-content">
+        <div id="summary-text" class="summary-section"></div>
+        <div id="summary-decisions" class="summary-section"></div>
+        <div id="summary-actions" class="summary-section"></div>
+      </div>
+      <div class="call-type-selector">
+        <label for="call-type">Call Type:</label>
+        <select id="call-type">
+          <option value="internal">Internal</option>
+          <option value="customer">Customer</option>
+          <option value="gtm">GTM</option>
+          <option value="product">Product</option>
+        </select>
+      </div>
+      <button id="btn-send-slack" class="btn btn-slack">Send to Slack</button>
+    </div>
+
+    <!-- Error State -->
+    <div id="state-error" class="state hidden">
+      <div class="status-icon error-icon">!</div>
+      <p id="error-message" class="status-text error-text"></p>
+      <button id="btn-retry" class="btn btn-primary">Retry</button>
+      <button id="btn-reset" class="btn btn-secondary">Reset</button>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
