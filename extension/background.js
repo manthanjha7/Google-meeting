@@ -172,8 +172,31 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   switch (message.type) {
     case 'MEET_DETECTED':
+      // Content script detected a Meet — store the tab ID so popup can initiate recording
       if (currentState === 'idle' && sender.tab) {
+        chrome.storage.local.set({ meetTabId: sender.tab.id });
         startRecording(sender.tab.id);
+      }
+      break;
+
+    case 'START_RECORDING_WITH_STREAM':
+      // Popup obtained streamId via user gesture and is passing it to background
+      if (currentState === 'idle' && message.streamId) {
+        recordingTabId = message.tabId;
+        recordingStartTime = Date.now();
+        (async () => {
+          try {
+            await ensureOffscreenDocument();
+            chrome.runtime.sendMessage({
+              type: 'START_RECORDING',
+              target: 'offscreen',
+              streamId: message.streamId,
+            });
+            await setState('recording', { tabId: message.tabId, startTime: recordingStartTime });
+          } catch (err) {
+            await setState('error', { message: 'Failed to start recording: ' + err.message });
+          }
+        })();
       }
       break;
 

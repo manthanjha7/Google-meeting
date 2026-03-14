@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const SARVAM_API_URL = 'https://api.sarvam.ai/speech-to-text-translate';
+const SARVAM_API_URL = 'https://api.sarvam.ai/speech-to-text';
 
 /**
  * Transcribe an audio file using Sarvam STT API.
@@ -17,7 +17,7 @@ async function transcribe(audioFilePath) {
   // Sarvam API accepts audio via multipart form data
   const formData = new FormData();
   formData.append('file', new Blob([audioBuffer]), fileName);
-  formData.append('model', 'saaras:v2');
+  formData.append('model', 'saaras:v3');
   formData.append('language_code', 'hi-en');
   formData.append('with_timestamps', 'false');
 
