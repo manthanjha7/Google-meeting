@@ -150,85 +150,96 @@ async function startRecording(streamId, includeMic = false) {
   }
 }
 
-// ---- Audio Analyser with Voice Activity Detection ----
+// ---- Audio Analyser ----
 //
 // How it works:
-// 1. We use an AnalyserNode connected to the actual audio stream being recorded.
-// 2. Every 100ms we compute RMS (root mean square) from the time-domain waveform.
-//    RMS is a measure of the overall loudness of the signal.
-// 3. We compare RMS to a threshold (0.015) — below this is silence/background noise.
-// 4. Only when voice is detected (RMS > threshold) do we send frequency band data.
-// 5. When silent, we send all zeros — the bars stay flat.
-// 6. We add smooth decay so bars fall gradually instead of snapping to zero.
+// 1. AnalyserNode is connected to the audio stream AND to a silent output
+//    (GainNode with gain=0 → destination). This ensures Chrome processes
+//    audio through the analyser even when no other output is connected.
+// 2. Every 100ms we read frequency data and map it directly to bar levels.
+// 3. No hard VAD gate — we use the actual frequency energy. When nobody
+//    speaks, frequency data is naturally near zero and bars stay flat.
+//    When someone speaks, the data spikes and bars respond.
+// 4. We focus on human voice frequencies (85Hz–3.5kHz) and apply
+//    aggressive scaling so even quiet audio is visible.
+// 5. Smooth decay prevents jittery bar movement.
 
-const VAD_THRESHOLD = 0.015; // RMS threshold for voice activity
-const DECAY_RATE = 0.85;     // How fast bars decay (0-1, higher = slower decay)
+const DECAY_RATE = 0.82;     // How fast bars decay (0-1, higher = slower decay)
 const NUM_BARS = 20;          // Number of visualizer bars
+const NOISE_FLOOR = 10;      // Ignore frequency values below this (0-255 range)
 let previousLevels = new Array(NUM_BARS).fill(0);
+let silentGain = null;
 
 function startAudioAnalyser(sourceNode) {
   analyserNode = audioContext.createAnalyser();
-  analyserNode.fftSize = 256;    // 128 frequency bins — good resolution
-  analyserNode.smoothingTimeConstant = 0.4; // Moderate smoothing
+  analyserNode.fftSize = 512;     // 256 frequency bins for fine resolution
+  analyserNode.smoothingTimeConstant = 0.5;
+  analyserNode.minDecibels = -90;
+  analyserNode.maxDecibels = -10;
+
   sourceNode.connect(analyserNode);
 
-  const frequencyBinCount = analyserNode.frequencyBinCount; // 128
+  // CRITICAL: Connect analyser to a silent output so Chrome actually
+  // processes audio through it. Without this, getByteFrequencyData
+  // can return all zeros in some Chrome versions.
+  silentGain = audioContext.createGain();
+  silentGain.gain.value = 0; // Silent — no audible output
+  analyserNode.connect(silentGain);
+  silentGain.connect(audioContext.destination);
+
+  const frequencyBinCount = analyserNode.frequencyBinCount; // 256
   const frequencyData = new Uint8Array(frequencyBinCount);
-  const timeDomainData = new Float32Array(analyserNode.fftSize);
+
+  // Calculate bin indices for human voice range
+  // For 48kHz sample rate: each bin = sampleRate / fftSize = 48000/512 ≈ 93.75 Hz
+  // Voice range: ~85Hz to ~3500Hz → bins 1 to ~37
+  const sampleRate = audioContext.sampleRate;
+  const binWidth = sampleRate / analyserNode.fftSize;
+  const startBin = Math.max(1, Math.floor(85 / binWidth));
+  const endBin = Math.min(frequencyBinCount - 1, Math.ceil(3500 / binWidth));
+  const usableBins = endBin - startBin;
+  const binsPerBar = Math.max(1, Math.floor(usableBins / NUM_BARS));
+
+  console.log(`[Finrep] Analyser: sampleRate=${sampleRate}, binWidth=${binWidth.toFixed(1)}Hz, voiceBins=${startBin}-${endBin}, binsPerBar=${binsPerBar}`);
+
+  let tickCount = 0;
 
   analyserInterval = setInterval(() => {
-    // Step 1: Compute RMS from time-domain data for voice activity detection
-    analyserNode.getFloatTimeDomainData(timeDomainData);
-    let sumSquares = 0;
-    for (let i = 0; i < timeDomainData.length; i++) {
-      sumSquares += timeDomainData[i] * timeDomainData[i];
+    analyserNode.getByteFrequencyData(frequencyData);
+
+    // Log raw data periodically for debugging
+    tickCount++;
+    if (tickCount % 50 === 1) { // Every 5 seconds
+      const maxVal = Math.max(...frequencyData.slice(startBin, endBin));
+      const avgVal = frequencyData.slice(startBin, endBin).reduce((a, b) => a + b, 0) / usableBins;
+      console.log(`[Finrep] Audio levels — max: ${maxVal}, avg: ${avgVal.toFixed(1)}, bins[${startBin}-${endBin}]`);
     }
-    const rms = Math.sqrt(sumSquares / timeDomainData.length);
 
-    const isSpeaking = rms > VAD_THRESHOLD;
-
-    let levels;
-
-    if (isSpeaking) {
-      // Step 2: Get frequency data and map to bars
-      analyserNode.getByteFrequencyData(frequencyData);
-
-      // Group frequency bins into NUM_BARS bands
-      // Focus on human voice range (roughly bins 2-80 out of 128 for 48kHz sample rate)
-      // This covers ~75Hz to ~3000Hz where most speech energy is
-      const startBin = 2;
-      const endBin = 80;
-      const usableBins = endBin - startBin;
-      const binsPerBar = Math.floor(usableBins / NUM_BARS);
-
-      levels = [];
-      for (let i = 0; i < NUM_BARS; i++) {
-        let sum = 0;
-        const barStart = startBin + i * binsPerBar;
-        for (let j = 0; j < binsPerBar; j++) {
-          sum += frequencyData[barStart + j];
-        }
-        const avg = sum / binsPerBar / 255; // Normalize to 0-1
-
-        // Scale up for visual impact — voice frequencies are often quiet
-        const scaled = Math.min(1, avg * 2.5);
-
-        // Smooth with previous value (prevents jitter)
-        const smoothed = Math.max(scaled, previousLevels[i] * DECAY_RATE);
-        levels.push(Math.round(smoothed * 100));
+    const levels = [];
+    for (let i = 0; i < NUM_BARS; i++) {
+      let sum = 0;
+      const barStart = startBin + i * binsPerBar;
+      for (let j = 0; j < binsPerBar; j++) {
+        const val = frequencyData[barStart + j] || 0;
+        // Subtract noise floor — anything below is silence
+        sum += Math.max(0, val - NOISE_FLOOR);
       }
-    } else {
-      // Silent — decay previous levels toward zero
-      levels = previousLevels.map((prev) => {
-        const decayed = prev * DECAY_RATE;
-        return decayed < 1 ? 0 : Math.round(decayed);
-      });
+
+      // Normalize: max possible per bin is (255 - NOISE_FLOOR)
+      const avg = sum / binsPerBar / (255 - NOISE_FLOOR);
+
+      // Scale aggressively so even moderate voice shows clearly
+      const scaled = Math.min(1, avg * 3.5);
+
+      // Smooth with previous value — bars decay gradually
+      const smoothed = Math.max(scaled, previousLevels[i] * DECAY_RATE);
+      levels.push(Math.round(smoothed * 100));
     }
 
     previousLevels = levels.map((l) => l / 100);
 
-    // Only write to storage if there's actual data to show (optimization)
-    const hasActivity = levels.some((l) => l > 0);
+    // Send to popup — null means "no activity" (bars stay flat)
+    const hasActivity = levels.some((l) => l > 2);
     chrome.storage.local.set({ audioLevels: hasActivity ? levels : null });
   }, 100);
 }
@@ -238,7 +249,14 @@ function stopAudioAnalyser() {
     clearInterval(analyserInterval);
     analyserInterval = null;
   }
-  analyserNode = null;
+  if (silentGain) {
+    silentGain.disconnect();
+    silentGain = null;
+  }
+  if (analyserNode) {
+    analyserNode.disconnect();
+    analyserNode = null;
+  }
   previousLevels = new Array(NUM_BARS).fill(0);
   chrome.storage.local.remove('audioLevels');
 }

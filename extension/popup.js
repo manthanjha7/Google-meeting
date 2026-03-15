@@ -329,9 +329,9 @@ chrome.storage.onChanged.addListener((changes) => {
   }
 });
 
-// Restore mic toggle preference
+// Restore mic toggle preference (defaults to ON so user's voice is captured)
 chrome.storage.local.get('includeMic', (result) => {
-  elements.toggleMic.checked = result.includeMic || false;
+  elements.toggleMic.checked = result.includeMic !== undefined ? result.includeMic : true;
 });
 
 // Initial sync
