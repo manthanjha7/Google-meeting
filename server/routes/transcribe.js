@@ -6,7 +6,7 @@ const router = express.Router();
 
 // POST /api/transcribe
 router.post('/', async (req, res) => {
-  const { meetingId } = req.body;
+  const { meetingId, numSpeakers } = req.body;
 
   if (!meetingId) {
     return res.status(400).json({ error: 'meetingId is required' });
@@ -22,7 +22,7 @@ router.post('/', async (req, res) => {
   }
 
   try {
-    const transcript = await transcribe(meeting.audio_path);
+    const transcript = await transcribe(meeting.audio_path, { numSpeakers });
 
     if (!transcript || transcript.trim().length === 0) {
       return res.status(400).json({
