@@ -27,7 +27,7 @@ async function transcribe(audioFilePath, { numSpeakers } = {}) {
   // Sarvam API accepts audio via multipart form data
   const formData = new FormData();
   formData.append('file', new Blob([audioBuffer]), fileName);
-  formData.append('model', 'saarika:v2.5');
+  formData.append('model', 'saaras:v3');
   formData.append('language_code', 'unknown');
   formData.append('with_timestamps', 'true');
   formData.append('with_diarization', 'true');
