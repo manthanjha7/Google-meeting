@@ -229,7 +229,21 @@ elements.btnStart.addEventListener('click', async () => {
     return;
   }
 
-  const includeMic = elements.toggleMic.checked;
+  let includeMic = elements.toggleMic.checked;
+
+  // If mic is requested, acquire permission here in the popup (visible context)
+  // so the browser can show the permission prompt. Offscreen docs can't show prompts.
+  if (includeMic) {
+    try {
+      const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Permission granted — stop the stream immediately, offscreen will request its own
+      micStream.getTracks().forEach((track) => track.stop());
+    } catch (err) {
+      console.warn('[Finrep] Microphone permission denied in popup:', err.message);
+      // Fall back to tab-only recording
+      includeMic = false;
+    }
+  }
 
   // Persist mic preference for next time
   chrome.storage.local.set({ includeMic });
