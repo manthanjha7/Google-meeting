@@ -8,6 +8,9 @@ let recordingTabId = null;
 let recordingStartTime = null;
 let meetTabId = null;
 
+// Pending start command — stored here until offscreen sends OFFSCREEN_READY
+let pendingStartCommand = null;
+
 // ---- State Management ----
 
 async function setState(state, data = {}) {
@@ -72,38 +75,46 @@ async function startRecording(tabId, includeMic = false) {
     recordingStartTime = Date.now();
 
     // Get media stream ID for the tab
-    // This works because it's called in response to a user gesture (popup button click)
     const streamId = await chrome.tabCapture.getMediaStreamId({
       targetTabId: tabId,
     });
 
-    // Create offscreen document for MediaRecorder
+    // Store the command — will be sent when offscreen signals READY
+    pendingStartCommand = {
+      type: 'START_RECORDING',
+      target: 'offscreen',
+      streamId,
+      includeMic,
+    };
+
+    // Create offscreen document (its script will send OFFSCREEN_READY when loaded)
     await ensureOffscreenDocument();
 
-    // Tell offscreen to start recording via storage (reliable, no race condition).
-    // chrome.runtime.sendMessage can be lost if offscreen.js hasn't loaded its
-    // listener yet. Storage commands are queued and always delivered.
-    await chrome.storage.local.set({
-      recordingCommand: {
-        action: 'start',
-        streamId,
-        includeMic,
-        ts: Date.now(),
-      },
+    // Check if offscreen was already running (existing document) — send immediately
+    const existingContexts = await chrome.runtime.getContexts({
+      contextTypes: ['OFFSCREEN_DOCUMENT'],
     });
+    if (existingContexts.length > 0 && pendingStartCommand) {
+      // Document already existed, so OFFSCREEN_READY was sent before we started listening.
+      // Send the command directly — the listener is already registered.
+      const cmd = pendingStartCommand;
+      pendingStartCommand = null;
+      chrome.runtime.sendMessage(cmd);
+    }
 
     setBadge('REC', '#ff4444');
     await setState('recording', { tabId, startTime: recordingStartTime, includeMic });
   } catch (err) {
     console.error('Failed to start recording:', err);
+    pendingStartCommand = null;
     await setState('error', { message: 'Failed to start recording: ' + err.message });
   }
 }
 
-async function stopRecording() {
-  // Use storage-based command — reliable even if service worker just restarted
-  await chrome.storage.local.set({
-    recordingCommand: { action: 'stop', ts: Date.now() },
+function stopRecording() {
+  chrome.runtime.sendMessage({
+    type: 'STOP_RECORDING',
+    target: 'offscreen',
   });
 }
 
@@ -192,9 +203,17 @@ function base64ToBlob(base64, mimeType) {
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   switch (message.type) {
+    case 'OFFSCREEN_READY':
+      // Offscreen document loaded — send any pending start command
+      console.log('[Finrep] Offscreen document is ready');
+      if (pendingStartCommand) {
+        const cmd = pendingStartCommand;
+        pendingStartCommand = null;
+        chrome.runtime.sendMessage(cmd);
+      }
+      break;
+
     case 'MEET_DETECTED':
-      // Content script detected a Meet — store the tab ID, set badge, but DON'T auto-record
-      // User must click the extension icon and press "Start Recording" (provides user gesture)
       if (sender.tab) {
         meetTabId = sender.tab.id;
         chrome.storage.local.set({ meetTabId: sender.tab.id });
@@ -208,7 +227,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       break;
 
     case 'START_RECORDING_REQUEST':
-      // Popup clicked "Start Recording" — user gesture context is active
       getState().then(({ state }) => {
         if ((state === 'idle' || state === 'meet-detected') && message.tabId) {
           startRecording(message.tabId, message.includeMic || false);
@@ -229,14 +247,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       break;
 
     case 'RECORDING_STARTED':
-      // Confirmation from offscreen that recording actually started
       console.log('[Finrep] Offscreen confirmed recording started');
       break;
 
+    case 'AUDIO_LEVELS':
+      // Forward audio levels from offscreen to storage (popup reads from storage)
+      chrome.storage.local.set({ audioLevels: message.levels });
+      break;
+
     case 'RECORDING_COMPLETE':
-      // Received from offscreen document with the recorded audio
-      // Clear the command so it doesn't re-trigger on future offscreen loads
-      chrome.storage.local.remove('recordingCommand');
+      // Clear audio levels
+      chrome.storage.local.remove('audioLevels');
       if (message.audioBase64) {
         runPipeline(message.audioBase64);
       } else {
@@ -246,8 +267,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       break;
 
     case 'STOP_REQUESTED':
-      // User manually stopped recording from popup
-      // Read from storage because service worker may have restarted and lost in-memory state
       getState().then(({ state }) => {
         if (state === 'recording') {
           stopRecording();
@@ -256,14 +275,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       break;
 
     case 'CANCEL_REQUESTED':
-      // User cancelled — discard recording
       getState().then(async ({ state }) => {
         if (state === 'recording') {
-          // Send cancel via storage command
-          await chrome.storage.local.set({
-            recordingCommand: { action: 'cancel', ts: Date.now() },
+          chrome.runtime.sendMessage({
+            type: 'CANCEL_RECORDING',
+            target: 'offscreen',
           });
-          // Wait for offscreen to clean up before closing it
           await new Promise((resolve) => setTimeout(resolve, 500));
           await closeOffscreenDocument();
           recordingTabId = null;
@@ -275,7 +292,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       break;
 
     case 'SEND_TO_SLACK':
-      // User clicked Send to Slack from popup
       (async () => {
         try {
           const res = await fetch(`${API_BASE}/slack/send`, {
@@ -295,22 +311,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           sendResponse({ success: false, error: err.message });
         }
       })();
-      return true; // Keep message channel open for async response
+      return true;
 
     case 'GET_STATE':
       getState().then((stateObj) => {
-        // Also include meetTabId so popup knows which tab to capture
         stateObj.data.meetTabId = meetTabId;
         sendResponse(stateObj);
       });
       return true;
 
     case 'RESET':
-      chrome.storage.local.remove('recordingCommand');
       closeOffscreenDocument();
       recordingTabId = null;
       recordingStartTime = null;
       meetTabId = null;
+      pendingStartCommand = null;
       clearBadge();
       setState('idle');
       break;
@@ -319,7 +334,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 // ---- Initialization ----
 
-// Restore in-memory state from storage (service worker may have been terminated and restarted)
 async function restoreState() {
   const result = await chrome.storage.local.get(['extensionState', 'stateData', 'meetTabId']);
   currentState = result.extensionState || 'idle';
@@ -330,7 +344,6 @@ async function restoreState() {
     recordingStartTime = result.stateData.startTime || null;
   }
 
-  // Restore badge based on state
   if (currentState === 'recording') {
     setBadge('REC', '#ff4444');
   } else if (currentState === 'meet-detected') {
@@ -340,16 +353,13 @@ async function restoreState() {
   }
 }
 
-// On install, reset to clean state
 chrome.runtime.onInstalled.addListener(() => {
   clearBadge();
   setState('idle');
 });
 
-// On startup (browser opened), restore from storage
 chrome.runtime.onStartup.addListener(() => {
   restoreState();
 });
 
-// Also restore immediately when script loads (handles service worker restart mid-session)
 restoreState();

@@ -1,13 +1,11 @@
 // Offscreen document for audio capture and recording
 // Required in Manifest V3 because service workers cannot use MediaRecorder
 //
-// Communication from background/popup → offscreen uses chrome.storage commands.
-// This avoids a race condition where chrome.runtime.sendMessage is lost because
-// the offscreen document's script hasn't loaded its listener yet.
+// NOTE: Offscreen documents only have access to chrome.runtime (not chrome.storage).
+// All communication uses chrome.runtime.onMessage / sendMessage.
+// A handshake (OFFSCREEN_READY) ensures messages aren't lost on first load.
 
 // ---- Global error handler ----
-// Catches unhandled async errors and reports them to background so the user
-// sees a failure instead of the extension silently hanging.
 self.addEventListener('unhandledrejection', (event) => {
   console.error('[Finrep] Unhandled rejection in offscreen:', event.reason);
   chrome.runtime.sendMessage({
@@ -27,76 +25,43 @@ let analyserNode = null;
 let silentGain = null;
 let isStarting = false; // Guard against double execution
 
-// ---- Storage-based command listener ----
-// Background/popup writes { recordingCommand: { action, ... , ts } } to storage.
-// We watch for changes and execute the command.
+// ---- Message-based command listener ----
 
-chrome.storage.onChanged.addListener((changes) => {
-  if (!changes.recordingCommand) return;
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.target !== 'offscreen') return;
 
-  const cmd = changes.recordingCommand.newValue;
-  if (!cmd || !cmd.action) return;
+  console.log('[Finrep] Received message:', message.type);
 
-  console.log('[Finrep] Received command via storage:', cmd.action);
-
-  switch (cmd.action) {
-    case 'start':
+  switch (message.type) {
+    case 'START_RECORDING':
       if (!isStarting && (!mediaRecorder || mediaRecorder.state === 'inactive')) {
-        processStartCommand(cmd);
+        isStarting = true;
+        startRecording(message.streamId, message.includeMic).finally(() => {
+          isStarting = false;
+        });
       } else {
-        console.log('[Finrep] Ignoring duplicate start command (already starting or recording)');
-        chrome.storage.local.remove('recordingCommand');
+        console.log('[Finrep] Ignoring duplicate start (already starting or recording)');
       }
       break;
-    case 'stop':
-      chrome.storage.local.remove('recordingCommand');
+    case 'STOP_RECORDING':
       stopRecording();
       break;
-    case 'cancel':
-      chrome.storage.local.remove('recordingCommand');
+    case 'CANCEL_RECORDING':
       cancelRecording();
       break;
   }
 });
 
-// Also check on load — in case the command was written before this script loaded.
-// The onChanged listener might not have been registered in time.
-chrome.storage.local.get('recordingCommand', (result) => {
-  const cmd = result.recordingCommand;
-  if (cmd && cmd.action === 'start' && cmd.streamId) {
-    // Only process if the command is recent (within last 5 seconds)
-    if (cmd.ts && Date.now() - cmd.ts < 5000) {
-      if (!isStarting && (!mediaRecorder || mediaRecorder.state === 'inactive')) {
-        console.log('[Finrep] Processing pending start command from storage');
-        processStartCommand(cmd);
-      }
-    } else {
-      // Stale command — clear it
-      chrome.storage.local.remove('recordingCommand');
-    }
-  }
-});
-
-console.log('[Finrep] Offscreen document loaded and listening for commands');
-
-// ---- Command Processing ----
-
-async function processStartCommand(cmd) {
-  isStarting = true;
-  // Clear the command from storage immediately so the other path cannot re-process it
-  await chrome.storage.local.remove('recordingCommand');
-  try {
-    await startRecording(cmd.streamId, cmd.includeMic);
-  } finally {
-    isStarting = false;
-  }
-}
+// Signal that the offscreen document is loaded and ready to receive commands.
+// Background waits for this before sending START_RECORDING.
+chrome.runtime.sendMessage({ type: 'OFFSCREEN_READY' });
+console.log('[Finrep] Offscreen document loaded, sent OFFSCREEN_READY');
 
 // ---- Recording ----
 
 async function startRecording(streamId, includeMic = false) {
   try {
-    // Capture tab audio stream (other participants' voices + any meeting audio)
+    // Capture tab audio stream
     tabStream = await navigator.mediaDevices.getUserMedia({
       audio: {
         mandatory: {
@@ -109,7 +74,7 @@ async function startRecording(streamId, includeMic = false) {
     console.log('[Finrep] Tab audio stream acquired, tracks:', tabStream.getAudioTracks().length);
 
     // Create AudioContext and RESUME it — offscreen documents have no user gesture,
-    // so the context starts suspended and produces silence unless explicitly resumed.
+    // so the context starts suspended unless explicitly resumed.
     audioContext = new AudioContext();
     await audioContext.resume();
     console.log('[Finrep] AudioContext state:', audioContext.state, 'sampleRate:', audioContext.sampleRate);
@@ -117,17 +82,15 @@ async function startRecording(streamId, includeMic = false) {
     const tabSource = audioContext.createMediaStreamSource(tabStream);
 
     // NOTE: In an offscreen document, audioContext.destination is headless (no speakers).
-    // This connect() call keeps the audio graph alive for the analyser but produces no
-    // audible output. Tab audio remains audible to the user because tab capture via
-    // getMediaStreamId does NOT mute the tab — Chrome plays it through its normal path.
+    // This connect() keeps the audio graph alive for the analyser. Tab audio remains
+    // audible to the user because tab capture does NOT mute the tab.
     tabSource.connect(audioContext.destination);
 
     let recordingStream;
-    let analyserSource; // The node to connect the analyser to
+    let analyserSource;
 
     if (includeMic) {
       try {
-        // Request microphone access — captures user's own voice
         micStream = await navigator.mediaDevices.getUserMedia({
           audio: {
             echoCancellation: true,
@@ -139,15 +102,11 @@ async function startRecording(streamId, includeMic = false) {
         console.log('[Finrep] Microphone stream acquired');
 
         const micSource = audioContext.createMediaStreamSource(micStream);
-
-        // Mix tab audio + mic audio into a single stream for recording
         const mixedDestination = audioContext.createMediaStreamDestination();
         tabSource.connect(mixedDestination);
         micSource.connect(mixedDestination);
 
         recordingStream = mixedDestination.stream;
-
-        // Analyser on the mixed stream
         analyserSource = audioContext.createMediaStreamSource(mixedDestination.stream);
         console.log('[Finrep] Recording with tab audio + microphone');
       } catch (micErr) {
@@ -156,7 +115,6 @@ async function startRecording(streamId, includeMic = false) {
         analyserSource = tabSource;
       }
     } else {
-      // Tab audio only — record directly from the original tab stream.
       recordingStream = tabStream;
       analyserSource = tabSource;
       console.log('[Finrep] Recording tab audio only');
@@ -190,7 +148,6 @@ async function startRecording(streamId, includeMic = false) {
         console.warn('[Finrep] Audio blob is very small, recording may be silent');
       }
 
-      // Convert blob to base64 and send to background via message
       const reader = new FileReader();
       reader.onloadend = () => {
         const base64 = reader.result.split(',')[1];
@@ -201,15 +158,12 @@ async function startRecording(streamId, includeMic = false) {
       };
       reader.readAsDataURL(blob);
 
-      // Stop all tracks
       cleanupStreams();
     };
 
-    // Collect data every 5 seconds (more frequent = less data loss on early stop)
     mediaRecorder.start(5000);
     console.log(`[Finrep] MediaRecorder started. State: ${mediaRecorder.state}`);
 
-    // Signal to background that recording actually started
     chrome.runtime.sendMessage({ type: 'RECORDING_STARTED' });
   } catch (err) {
     console.error('[Finrep] Recording error:', err);
@@ -223,10 +177,6 @@ async function startRecording(streamId, includeMic = false) {
 }
 
 // ---- Audio Analyser ----
-//
-// Uses frequency data directly — no hard VAD gate. When nobody speaks,
-// frequency energy is naturally near zero and bars stay flat.
-// When someone speaks, data spikes and bars respond.
 
 const DECAY_RATE = 0.82;
 const NUM_BARS = 20;
@@ -242,8 +192,6 @@ function startAudioAnalyser(sourceNode) {
 
   sourceNode.connect(analyserNode);
 
-  // Connect analyser to a silent output so Chrome processes audio through it.
-  // Without this, getByteFrequencyData can return all zeros.
   silentGain = audioContext.createGain();
   silentGain.gain.value = 0;
   analyserNode.connect(silentGain);
@@ -252,7 +200,6 @@ function startAudioAnalyser(sourceNode) {
   const frequencyBinCount = analyserNode.frequencyBinCount;
   const frequencyData = new Uint8Array(frequencyBinCount);
 
-  // Calculate bin indices for human voice range (85Hz - 3500Hz)
   const sampleRate = audioContext.sampleRate;
   const binWidth = sampleRate / analyserNode.fftSize;
   const startBin = Math.max(1, Math.floor(85 / binWidth));
@@ -269,7 +216,6 @@ function startAudioAnalyser(sourceNode) {
 
     analyserNode.getByteFrequencyData(frequencyData);
 
-    // Debug logging every 5 seconds
     tickCount++;
     if (tickCount % 50 === 1) {
       const slice = frequencyData.slice(startBin, endBin);
@@ -296,7 +242,11 @@ function startAudioAnalyser(sourceNode) {
     previousLevels = levels.map((l) => l / 100);
 
     const hasActivity = levels.some((l) => l > 2);
-    chrome.storage.local.set({ audioLevels: hasActivity ? levels : null });
+    // Send levels to background which writes them to storage for the popup
+    chrome.runtime.sendMessage({
+      type: 'AUDIO_LEVELS',
+      levels: hasActivity ? levels : null,
+    });
   }, 100);
 }
 
@@ -314,7 +264,8 @@ function stopAudioAnalyser() {
     analyserNode = null;
   }
   previousLevels = new Array(NUM_BARS).fill(0);
-  chrome.storage.local.remove('audioLevels');
+  // Notify background to clear levels
+  chrome.runtime.sendMessage({ type: 'AUDIO_LEVELS', levels: null });
 }
 
 // ---- Shared Cleanup ----
@@ -339,9 +290,8 @@ function cleanupStreams() {
 function stopRecording() {
   console.log('[Finrep] stopRecording called, mediaRecorder state:', mediaRecorder?.state);
   if (mediaRecorder && mediaRecorder.state === 'recording') {
-    mediaRecorder.stop(); // onstop handler will clean up and send RECORDING_COMPLETE
+    mediaRecorder.stop();
   } else {
-    // MediaRecorder is missing or already stopped — notify background so it doesn't hang
     console.warn('[Finrep] stopRecording: no active MediaRecorder, sending empty completion');
     stopAudioAnalyser();
     cleanupStreams();
