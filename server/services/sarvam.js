@@ -18,7 +18,7 @@ async function transcribe(audioFilePath) {
   const formData = new FormData();
   formData.append('file', new Blob([audioBuffer]), fileName);
   formData.append('model', 'saaras:v3');
-  formData.append('language_code', 'hi-en');
+  formData.append('language_code', 'unknown');
   formData.append('with_timestamps', 'false');
 
   const response = await fetch(SARVAM_API_URL, {
