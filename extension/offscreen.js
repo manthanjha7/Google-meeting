@@ -1,10 +1,21 @@
 // Offscreen document for audio capture and recording
 // Required in Manifest V3 because service workers cannot use MediaRecorder
 //
-// IMPORTANT: Communication from background/popup → offscreen uses chrome.storage
-// instead of chrome.runtime.sendMessage. This is because when the offscreen document
-// is first created, its script hasn't loaded yet, so messages sent immediately after
-// creation are lost. Storage-based commands are queued and always delivered reliably.
+// Communication from background/popup → offscreen uses chrome.storage commands.
+// This avoids a race condition where chrome.runtime.sendMessage is lost because
+// the offscreen document's script hasn't loaded its listener yet.
+
+// ---- Global error handler ----
+// Catches unhandled async errors and reports them to background so the user
+// sees a failure instead of the extension silently hanging.
+self.addEventListener('unhandledrejection', (event) => {
+  console.error('[Finrep] Unhandled rejection in offscreen:', event.reason);
+  chrome.runtime.sendMessage({
+    type: 'RECORDING_COMPLETE',
+    audioBase64: null,
+    error: 'Offscreen error: ' + (event.reason?.message || String(event.reason)),
+  });
+});
 
 let mediaRecorder = null;
 let recordedChunks = [];
@@ -14,6 +25,7 @@ let tabStream = null;
 let analyserInterval = null;
 let analyserNode = null;
 let silentGain = null;
+let isStarting = false; // Guard against double execution
 
 // ---- Storage-based command listener ----
 // Background/popup writes { recordingCommand: { action, ... , ts } } to storage.
@@ -29,45 +41,61 @@ chrome.storage.onChanged.addListener((changes) => {
 
   switch (cmd.action) {
     case 'start':
-      startRecording(cmd.streamId, cmd.includeMic);
+      if (!isStarting && (!mediaRecorder || mediaRecorder.state === 'inactive')) {
+        processStartCommand(cmd);
+      } else {
+        console.log('[Finrep] Ignoring duplicate start command (already starting or recording)');
+        chrome.storage.local.remove('recordingCommand');
+      }
       break;
     case 'stop':
+      chrome.storage.local.remove('recordingCommand');
       stopRecording();
       break;
     case 'cancel':
+      chrome.storage.local.remove('recordingCommand');
       cancelRecording();
       break;
   }
 });
 
-// Also check on load — in case the command was written before this script loaded
+// Also check on load — in case the command was written before this script loaded.
+// The onChanged listener might not have been registered in time.
 chrome.storage.local.get('recordingCommand', (result) => {
   const cmd = result.recordingCommand;
   if (cmd && cmd.action === 'start' && cmd.streamId) {
     // Only process if the command is recent (within last 5 seconds)
     if (cmd.ts && Date.now() - cmd.ts < 5000) {
-      console.log('[Finrep] Processing pending start command from storage');
-      startRecording(cmd.streamId, cmd.includeMic);
+      if (!isStarting && (!mediaRecorder || mediaRecorder.state === 'inactive')) {
+        console.log('[Finrep] Processing pending start command from storage');
+        processStartCommand(cmd);
+      }
+    } else {
+      // Stale command — clear it
+      chrome.storage.local.remove('recordingCommand');
     }
   }
 });
 
 console.log('[Finrep] Offscreen document loaded and listening for commands');
 
+// ---- Command Processing ----
+
+async function processStartCommand(cmd) {
+  isStarting = true;
+  // Clear the command from storage immediately so the other path cannot re-process it
+  await chrome.storage.local.remove('recordingCommand');
+  try {
+    await startRecording(cmd.streamId, cmd.includeMic);
+  } finally {
+    isStarting = false;
+  }
+}
+
 // ---- Recording ----
 
 async function startRecording(streamId, includeMic = false) {
   try {
-    // Clean up any previous state
-    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-      mediaRecorder.stop();
-    }
-    if (audioContext) {
-      await audioContext.close();
-      audioContext = null;
-    }
-    stopAudioAnalyser();
-
     // Capture tab audio stream (other participants' voices + any meeting audio)
     tabStream = await navigator.mediaDevices.getUserMedia({
       audio: {
@@ -88,8 +116,10 @@ async function startRecording(streamId, includeMic = false) {
 
     const tabSource = audioContext.createMediaStreamSource(tabStream);
 
-    // Route tab audio back to speakers so the user can still hear the meeting.
-    // Without this, tab audio capture intercepts the audio and the user hears silence.
+    // NOTE: In an offscreen document, audioContext.destination is headless (no speakers).
+    // This connect() call keeps the audio graph alive for the analyser but produces no
+    // audible output. Tab audio remains audible to the user because tab capture via
+    // getMediaStreamId does NOT mute the tab — Chrome plays it through its normal path.
     tabSource.connect(audioContext.destination);
 
     let recordingStream;
@@ -161,7 +191,6 @@ async function startRecording(streamId, includeMic = false) {
       }
 
       // Convert blob to base64 and send to background via message
-      // (background is guaranteed alive since it initiated the recording)
       const reader = new FileReader();
       reader.onloadend = () => {
         const base64 = reader.result.split(',')[1];
@@ -173,14 +202,7 @@ async function startRecording(streamId, includeMic = false) {
       reader.readAsDataURL(blob);
 
       // Stop all tracks
-      if (tabStream) {
-        tabStream.getTracks().forEach((track) => track.stop());
-        tabStream = null;
-      }
-      if (micStream) {
-        micStream.getTracks().forEach((track) => track.stop());
-        micStream = null;
-      }
+      cleanupStreams();
     };
 
     // Collect data every 5 seconds (more frequent = less data loss on early stop)
@@ -191,7 +213,7 @@ async function startRecording(streamId, includeMic = false) {
     chrome.runtime.sendMessage({ type: 'RECORDING_STARTED' });
   } catch (err) {
     console.error('[Finrep] Recording error:', err);
-    stopAudioAnalyser();
+    cleanupStreams();
     chrome.runtime.sendMessage({
       type: 'RECORDING_COMPLETE',
       audioBase64: null,
@@ -295,12 +317,40 @@ function stopAudioAnalyser() {
   chrome.storage.local.remove('audioLevels');
 }
 
+// ---- Shared Cleanup ----
+
+function cleanupStreams() {
+  if (tabStream) {
+    tabStream.getTracks().forEach((track) => track.stop());
+    tabStream = null;
+  }
+  if (micStream) {
+    micStream.getTracks().forEach((track) => track.stop());
+    micStream = null;
+  }
+  if (audioContext) {
+    audioContext.close();
+    audioContext = null;
+  }
+}
+
 // ---- Recording Control ----
 
 function stopRecording() {
   console.log('[Finrep] stopRecording called, mediaRecorder state:', mediaRecorder?.state);
-  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-    mediaRecorder.stop();
+  if (mediaRecorder && mediaRecorder.state === 'recording') {
+    mediaRecorder.stop(); // onstop handler will clean up and send RECORDING_COMPLETE
+  } else {
+    // MediaRecorder is missing or already stopped — notify background so it doesn't hang
+    console.warn('[Finrep] stopRecording: no active MediaRecorder, sending empty completion');
+    stopAudioAnalyser();
+    cleanupStreams();
+    mediaRecorder = null;
+    chrome.runtime.sendMessage({
+      type: 'RECORDING_COMPLETE',
+      audioBase64: null,
+      error: 'Recording was not active when stop was requested',
+    });
   }
 }
 
@@ -318,17 +368,5 @@ function cancelRecording() {
   }
 
   recordedChunks = [];
-
-  if (tabStream) {
-    tabStream.getTracks().forEach((track) => track.stop());
-    tabStream = null;
-  }
-  if (micStream) {
-    micStream.getTracks().forEach((track) => track.stop());
-    micStream = null;
-  }
-  if (audioContext) {
-    audioContext.close();
-    audioContext = null;
-  }
+  cleanupStreams();
 }
