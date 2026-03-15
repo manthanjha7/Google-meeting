@@ -20,6 +20,7 @@ const elements = {
   summaryActions: document.getElementById('summary-actions'),
   callType: document.getElementById('call-type'),
   errorMessage: document.getElementById('error-message'),
+  toggleMic: document.getElementById('toggle-mic'),
   btnStart: document.getElementById('btn-start'),
   btnStop: document.getElementById('btn-stop'),
   btnCancel: document.getElementById('btn-cancel'),
@@ -186,11 +187,17 @@ elements.btnStart.addEventListener('click', async () => {
     return;
   }
 
+  const includeMic = elements.toggleMic.checked;
+
+  // Persist mic preference for next time
+  chrome.storage.local.set({ includeMic });
+
   // Send request to background to start recording
   // The extension is "invoked" because user clicked the popup, so tabCapture will work
   chrome.runtime.sendMessage({
     type: 'START_RECORDING_REQUEST',
     tabId: activeTab.id,
+    includeMic,
   });
 
   // Close popup — recording state will be shown when popup is reopened
@@ -256,6 +263,11 @@ chrome.storage.onChanged.addListener((changes) => {
   if (changes.extensionState || changes.stateData) {
     syncState();
   }
+});
+
+// Restore mic toggle preference
+chrome.storage.local.get('includeMic', (result) => {
+  elements.toggleMic.checked = result.includeMic || false;
 });
 
 // Initial sync

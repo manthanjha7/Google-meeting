@@ -66,7 +66,7 @@ async function closeOffscreenDocument() {
 
 // ---- Recording Control ----
 
-async function startRecording(tabId) {
+async function startRecording(tabId, includeMic = false) {
   try {
     recordingTabId = tabId;
     recordingStartTime = Date.now();
@@ -85,10 +85,11 @@ async function startRecording(tabId) {
       type: 'START_RECORDING',
       target: 'offscreen',
       streamId: streamId,
+      includeMic: includeMic,
     });
 
     setBadge('REC', '#ff4444');
-    await setState('recording', { tabId, startTime: recordingStartTime });
+    await setState('recording', { tabId, startTime: recordingStartTime, includeMic });
   } catch (err) {
     console.error('Failed to start recording:', err);
     await setState('error', { message: 'Failed to start recording: ' + err.message });
@@ -207,7 +208,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       // Popup clicked "Start Recording" — user gesture context is active
       getState().then(({ state }) => {
         if ((state === 'idle' || state === 'meet-detected') && message.tabId) {
-          startRecording(message.tabId);
+          startRecording(message.tabId, message.includeMic || false);
         }
       });
       break;

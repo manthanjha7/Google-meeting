@@ -23,6 +23,13 @@ router.post('/', async (req, res) => {
 
   try {
     const transcript = await transcribe(meeting.audio_path);
+
+    if (!transcript || transcript.trim().length === 0) {
+      return res.status(400).json({
+        error: 'Transcription returned empty. The audio may be silent or too short. Ensure your microphone is enabled in the extension and try again.',
+      });
+    }
+
     await updateTranscript(meetingId, transcript);
 
     res.json({ meetingId, transcript });

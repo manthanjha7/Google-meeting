@@ -17,8 +17,10 @@ router.post('/', async (req, res) => {
     return res.status(404).json({ error: 'Meeting not found' });
   }
 
-  if (!meeting.transcript) {
-    return res.status(400).json({ error: 'No transcript available. Run transcription first.' });
+  if (!meeting.transcript || meeting.transcript.trim().length === 0) {
+    return res.status(400).json({
+      error: 'No transcript available. The audio recording may have been silent. Check that meeting audio is playing and try enabling the microphone option.',
+    });
   }
 
   try {

@@ -11,8 +11,16 @@ async function transcribe(audioFilePath) {
   const apiKey = process.env.SARVAM_API_KEY;
   if (!apiKey) throw new Error('SARVAM_API_KEY not configured');
 
+  if (!fs.existsSync(audioFilePath)) {
+    throw new Error(`Audio file not found: ${audioFilePath}`);
+  }
+
   const audioBuffer = fs.readFileSync(audioFilePath);
   const fileName = path.basename(audioFilePath);
+
+  if (audioBuffer.length < 1000) {
+    throw new Error(`Audio file too small (${audioBuffer.length} bytes) — recording may have failed`);
+  }
 
   // Sarvam API accepts audio via multipart form data
   const formData = new FormData();
