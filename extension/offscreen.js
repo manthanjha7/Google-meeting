@@ -5,6 +5,7 @@ let mediaRecorder = null;
 let recordedChunks = [];
 let audioContext = null;
 let micStream = null;
+let analyserInterval = null;
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.target !== 'offscreen') return;
@@ -46,6 +47,7 @@ async function startRecording(streamId, includeMic = false) {
     tabSource.connect(audioContext.destination);
 
     let recordingStream;
+    let analyserSource; // The node to connect the analyser to
 
     if (includeMic) {
       try {
@@ -66,19 +68,24 @@ async function startRecording(streamId, includeMic = false) {
         micSource.connect(mixedDestination);
 
         recordingStream = mixedDestination.stream;
+
+        // Analyser on the mixed stream
+        analyserSource = audioContext.createMediaStreamSource(mixedDestination.stream);
         console.log('[Finrep] Recording with tab audio + microphone');
       } catch (micErr) {
         console.warn('[Finrep] Microphone access denied, falling back to tab audio only:', micErr.message);
-        // Fall back to tab-only — record directly from the original stream
         recordingStream = tabStream;
+        analyserSource = tabSource;
       }
     } else {
       // Tab audio only — record directly from the original tab stream.
-      // This avoids routing through AudioContext destination nodes which can
-      // produce silence if the context has issues.
       recordingStream = tabStream;
+      analyserSource = tabSource;
       console.log('[Finrep] Recording tab audio only');
     }
+
+    // Set up audio analyser for visualizer
+    startAudioAnalyser(analyserSource);
 
     recordedChunks = [];
     mediaRecorder = new MediaRecorder(recordingStream, {
@@ -93,6 +100,8 @@ async function startRecording(streamId, includeMic = false) {
     };
 
     mediaRecorder.onstop = async () => {
+      stopAudioAnalyser();
+
       const blob = new Blob(recordedChunks, { type: 'audio/webm' });
       const totalSize = blob.size;
       recordedChunks = [];
@@ -135,6 +144,48 @@ async function startRecording(streamId, includeMic = false) {
   }
 }
 
+// ---- Audio Analyser for Visualizer ----
+
+function startAudioAnalyser(sourceNode) {
+  const analyser = audioContext.createAnalyser();
+  analyser.fftSize = 64;
+  sourceNode.connect(analyser);
+
+  const bufferLength = analyser.frequencyBinCount; // 32 bins
+  const dataArray = new Uint8Array(bufferLength);
+
+  // Sample 5 frequency bands and write levels to storage every 150ms
+  analyserInterval = setInterval(() => {
+    analyser.getByteFrequencyData(dataArray);
+
+    // Pick 5 bands spread across the frequency range
+    const bands = 5;
+    const bandSize = Math.floor(bufferLength / bands);
+    const levels = [];
+    for (let i = 0; i < bands; i++) {
+      let sum = 0;
+      for (let j = 0; j < bandSize; j++) {
+        sum += dataArray[i * bandSize + j];
+      }
+      // Normalize to 0-100
+      levels.push(Math.round((sum / bandSize / 255) * 100));
+    }
+
+    chrome.storage.local.set({ audioLevels: levels });
+  }, 150);
+}
+
+function stopAudioAnalyser() {
+  if (analyserInterval) {
+    clearInterval(analyserInterval);
+    analyserInterval = null;
+  }
+  // Clear levels so popup shows idle state
+  chrome.storage.local.remove('audioLevels');
+}
+
+// ---- Recording Control ----
+
 function stopRecording() {
   if (mediaRecorder && mediaRecorder.state !== 'inactive') {
     mediaRecorder.stop();
@@ -142,6 +193,7 @@ function stopRecording() {
 }
 
 function cancelRecording() {
+  stopAudioAnalyser();
   if (mediaRecorder && mediaRecorder.state !== 'inactive') {
     mediaRecorder.ondataavailable = null;
     mediaRecorder.onstop = null;

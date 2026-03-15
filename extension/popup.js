@@ -112,6 +112,35 @@ function stopTimer() {
   clearInterval(timerInterval);
 }
 
+// ---- Audio Visualizer ----
+
+const vizBars = [
+  document.getElementById('viz-bar-0'),
+  document.getElementById('viz-bar-1'),
+  document.getElementById('viz-bar-2'),
+  document.getElementById('viz-bar-3'),
+  document.getElementById('viz-bar-4'),
+];
+
+function updateVisualizer(levels) {
+  if (!levels || levels.length === 0) {
+    // No data — show idle bounce animation
+    vizBars.forEach((bar) => {
+      bar.classList.add('idle-bounce');
+      bar.style.height = '';
+    });
+    return;
+  }
+
+  vizBars.forEach((bar, i) => {
+    bar.classList.remove('idle-bounce');
+    // Map level (0-100) to height (4px - 44px)
+    const level = levels[i] || 0;
+    const height = 4 + (level / 100) * 40;
+    bar.style.height = `${height}px`;
+  });
+}
+
 // ---- State Sync ----
 
 async function syncState() {
@@ -134,6 +163,10 @@ async function syncState() {
       case 'recording':
         showState('recording');
         if (data.startTime) startTimer(data.startTime);
+        // Start visualizer — show idle bounce until real audio data arrives
+        chrome.storage.local.get('audioLevels', (result) => {
+          updateVisualizer(result.audioLevels || null);
+        });
         break;
 
       case 'processing':
@@ -262,6 +295,10 @@ elements.btnReset.addEventListener('click', () => {
 chrome.storage.onChanged.addListener((changes) => {
   if (changes.extensionState || changes.stateData) {
     syncState();
+  }
+  // Update audio visualizer bars when levels change
+  if (changes.audioLevels) {
+    updateVisualizer(changes.audioLevels.newValue);
   }
 });
 

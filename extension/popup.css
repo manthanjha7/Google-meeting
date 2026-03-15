@@ -57,6 +57,40 @@ header h1 {
   animation: pulse 1.5s infinite;
 }
 
+/* Audio Visualizer */
+.audio-visualizer {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 6px;
+  height: 48px;
+  margin-bottom: 12px;
+}
+
+.viz-bar {
+  width: 6px;
+  min-height: 4px;
+  height: 4px;
+  border-radius: 3px;
+  background: linear-gradient(to top, #4a4aff, #ff4444);
+  transition: height 0.1s ease-out;
+}
+
+/* Idle bounce animation when no audio data is flowing */
+.viz-bar.idle-bounce {
+  animation: idleBounce 1.2s ease-in-out infinite;
+}
+.viz-bar.idle-bounce:nth-child(1) { animation-delay: 0s; }
+.viz-bar.idle-bounce:nth-child(2) { animation-delay: 0.15s; }
+.viz-bar.idle-bounce:nth-child(3) { animation-delay: 0.3s; }
+.viz-bar.idle-bounce:nth-child(4) { animation-delay: 0.45s; }
+.viz-bar.idle-bounce:nth-child(5) { animation-delay: 0.6s; }
+
+@keyframes idleBounce {
+  0%, 100% { height: 6px; }
+  50% { height: 16px; }
+}
+
 .error-icon {
   color: #ff6b6b;
   font-size: 36px;

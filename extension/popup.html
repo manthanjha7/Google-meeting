@@ -36,7 +36,13 @@
 
     <!-- Recording State -->
     <div id="state-recording" class="state hidden">
-      <div class="status-icon recording-icon">&#9679;</div>
+      <div class="audio-visualizer" id="audio-visualizer">
+        <div class="viz-bar" id="viz-bar-0"></div>
+        <div class="viz-bar" id="viz-bar-1"></div>
+        <div class="viz-bar" id="viz-bar-2"></div>
+        <div class="viz-bar" id="viz-bar-3"></div>
+        <div class="viz-bar" id="viz-bar-4"></div>
+      </div>
       <p class="status-text">Recording in progress</p>
       <p id="recording-timer" class="timer">00:00:00</p>
       <div class="button-group">
