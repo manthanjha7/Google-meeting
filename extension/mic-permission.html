@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Finrep — Microphone Permission</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #1a1a2e;
+      color: #e0e0e0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+    }
+    .card {
+      background: #16213e;
+      border-radius: 12px;
+      padding: 32px;
+      text-align: center;
+      max-width: 400px;
+    }
+    h2 { color: #fff; margin-bottom: 8px; }
+    p { color: #aaa; font-size: 14px; line-height: 1.5; }
+    #status { margin-top: 16px; font-weight: bold; font-size: 16px; }
+    .granted { color: #4caf50; }
+    .denied { color: #f44336; }
+    .requesting { color: #ffc107; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>Microphone Access</h2>
+    <p>Finrep needs microphone permission to record your voice during meetings. Please allow access when prompted.</p>
+    <p id="status" class="requesting">Requesting permission...</p>
+  </div>
+  <script src="mic-permission.js"></script>
+</body>
+</html>

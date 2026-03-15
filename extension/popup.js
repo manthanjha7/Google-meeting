@@ -231,18 +231,32 @@ elements.btnStart.addEventListener('click', async () => {
 
   let includeMic = elements.toggleMic.checked;
 
-  // If mic is requested, acquire permission here in the popup (visible context)
-  // so the browser can show the permission prompt. Offscreen docs can't show prompts.
+  // If mic is requested, check if permission is already granted.
+  // Popups are too transient to show the browser permission dialog, so we
+  // open a dedicated page in a new window if permission hasn't been granted yet.
   if (includeMic) {
-    try {
-      const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      // Permission granted — stop the stream immediately, offscreen will request its own
-      micStream.getTracks().forEach((track) => track.stop());
-    } catch (err) {
-      console.warn('[Finrep] Microphone permission denied in popup:', err.message);
-      // Fall back to tab-only recording
+    const permStatus = await navigator.permissions.query({ name: 'microphone' });
+    if (permStatus.state === 'prompt') {
+      // Permission not yet granted — open a dedicated page to trigger the prompt
+      chrome.windows.create({
+        url: chrome.runtime.getURL('mic-permission.html'),
+        type: 'popup',
+        width: 450,
+        height: 300,
+        focused: true,
+      });
+      btn.textContent = 'Grant mic permission first';
+      setTimeout(() => {
+        btn.textContent = 'Start Recording';
+        btn.disabled = false;
+      }, 3000);
+      return;
+    } else if (permStatus.state === 'denied') {
+      // User previously denied — fall back to tab-only
+      console.warn('[Finrep] Microphone permission previously denied, recording tab audio only');
       includeMic = false;
     }
+    // If 'granted', proceed normally
   }
 
   // Persist mic preference for next time
