@@ -1,6 +1,6 @@
 // Background service worker — orchestrates recording, pipeline, and state management
 
-const API_BASE = 'http://localhost:3000/api';
+const API_BASE = 'http://localhost:3001/api';
 
 // Extension state: 'idle' | 'recording' | 'processing' | 'summary-ready' | 'error'
 let currentState = 'idle';

@@ -10,7 +10,7 @@
     "offscreen"
   ],
   "host_permissions": [
-    "http://localhost:3000/*"
+    "http://localhost:3001/*"
   ],
   "background": {
     "service_worker": "background.js"
