@@ -24,7 +24,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 async function startRecording(streamId, includeMic = false) {
   try {
-    // Capture tab audio stream
+    // Capture tab audio stream (other participants' voices + any meeting audio)
     const tabStream = await navigator.mediaDevices.getUserMedia({
       audio: {
         mandatory: {
@@ -34,7 +34,11 @@ async function startRecording(streamId, includeMic = false) {
       },
     });
 
+    // Create AudioContext and RESUME it — offscreen documents have no user gesture,
+    // so the context starts suspended and produces silence unless explicitly resumed.
     audioContext = new AudioContext();
+    await audioContext.resume();
+
     const tabSource = audioContext.createMediaStreamSource(tabStream);
 
     // Route tab audio back to speakers so the user can still hear the meeting.
@@ -45,7 +49,7 @@ async function startRecording(streamId, includeMic = false) {
 
     if (includeMic) {
       try {
-        // Request microphone access — browser will prompt user if needed
+        // Request microphone access — captures user's own voice
         micStream = await navigator.mediaDevices.getUserMedia({
           audio: {
             echoCancellation: true,
@@ -62,18 +66,18 @@ async function startRecording(streamId, includeMic = false) {
         micSource.connect(mixedDestination);
 
         recordingStream = mixedDestination.stream;
+        console.log('[Finrep] Recording with tab audio + microphone');
       } catch (micErr) {
-        console.warn('Microphone access denied or failed, recording tab audio only:', micErr.message);
-        // Fall back to tab-only recording
-        const tabDestination = audioContext.createMediaStreamDestination();
-        tabSource.connect(tabDestination);
-        recordingStream = tabDestination.stream;
+        console.warn('[Finrep] Microphone access denied, falling back to tab audio only:', micErr.message);
+        // Fall back to tab-only — record directly from the original stream
+        recordingStream = tabStream;
       }
     } else {
-      // Tab audio only — route through a destination node for MediaRecorder
-      const tabDestination = audioContext.createMediaStreamDestination();
-      tabSource.connect(tabDestination);
-      recordingStream = tabDestination.stream;
+      // Tab audio only — record directly from the original tab stream.
+      // This avoids routing through AudioContext destination nodes which can
+      // produce silence if the context has issues.
+      recordingStream = tabStream;
+      console.log('[Finrep] Recording tab audio only');
     }
 
     recordedChunks = [];
@@ -90,7 +94,14 @@ async function startRecording(streamId, includeMic = false) {
 
     mediaRecorder.onstop = async () => {
       const blob = new Blob(recordedChunks, { type: 'audio/webm' });
+      const totalSize = blob.size;
       recordedChunks = [];
+
+      console.log(`[Finrep] Recording stopped. Audio size: ${totalSize} bytes`);
+
+      if (totalSize < 1000) {
+        console.warn('[Finrep] Audio blob is very small, recording may be silent');
+      }
 
       // Convert blob to base64 and send to background
       const reader = new FileReader();
@@ -111,10 +122,11 @@ async function startRecording(streamId, includeMic = false) {
       }
     };
 
-    // Collect data every 10 seconds
-    mediaRecorder.start(10000);
+    // Collect data every 5 seconds (more frequent = less data loss on early stop)
+    mediaRecorder.start(5000);
+    console.log(`[Finrep] MediaRecorder started. State: ${mediaRecorder.state}`);
   } catch (err) {
-    console.error('Offscreen recording error:', err);
+    console.error('[Finrep] Recording error:', err);
     chrome.runtime.sendMessage({
       type: 'RECORDING_COMPLETE',
       audioBase64: null,
