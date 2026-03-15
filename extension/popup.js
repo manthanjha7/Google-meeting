@@ -252,8 +252,10 @@ elements.btnStop.addEventListener('click', () => {
   elements.btnStop.disabled = true;
   elements.btnStop.textContent = 'Stopping...';
 
-  // Send stop directly to offscreen (bypasses background service worker which may be asleep)
-  chrome.runtime.sendMessage({ type: 'STOP_RECORDING', target: 'offscreen' });
+  // Send stop command via storage (directly reaches offscreen, 100% reliable)
+  chrome.storage.local.set({
+    recordingCommand: { action: 'stop', ts: Date.now() },
+  });
   // Also notify background so it knows to expect RECORDING_COMPLETE
   chrome.runtime.sendMessage({ type: 'STOP_REQUESTED' });
 
@@ -267,8 +269,10 @@ elements.btnStop.addEventListener('click', () => {
 });
 
 elements.btnCancel.addEventListener('click', () => {
-  // Send cancel directly to offscreen
-  chrome.runtime.sendMessage({ type: 'CANCEL_RECORDING', target: 'offscreen' });
+  // Send cancel command via storage (directly reaches offscreen)
+  chrome.storage.local.set({
+    recordingCommand: { action: 'cancel', ts: Date.now() },
+  });
   // Also notify background to clean up state
   chrome.runtime.sendMessage({ type: 'CANCEL_REQUESTED' });
   showState('idle');

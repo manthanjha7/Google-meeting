@@ -1,5 +1,10 @@
 // Offscreen document for audio capture and recording
 // Required in Manifest V3 because service workers cannot use MediaRecorder
+//
+// IMPORTANT: Communication from background/popup → offscreen uses chrome.storage
+// instead of chrome.runtime.sendMessage. This is because when the offscreen document
+// is first created, its script hasn't loaded yet, so messages sent immediately after
+// creation are lost. Storage-based commands are queued and always delivered reliably.
 
 let mediaRecorder = null;
 let recordedChunks = [];
@@ -8,25 +13,61 @@ let micStream = null;
 let tabStream = null;
 let analyserInterval = null;
 let analyserNode = null;
+let silentGain = null;
 
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.target !== 'offscreen') return;
+// ---- Storage-based command listener ----
+// Background/popup writes { recordingCommand: { action, ... , ts } } to storage.
+// We watch for changes and execute the command.
 
-  switch (message.type) {
-    case 'START_RECORDING':
-      startRecording(message.streamId, message.includeMic);
+chrome.storage.onChanged.addListener((changes) => {
+  if (!changes.recordingCommand) return;
+
+  const cmd = changes.recordingCommand.newValue;
+  if (!cmd || !cmd.action) return;
+
+  console.log('[Finrep] Received command via storage:', cmd.action);
+
+  switch (cmd.action) {
+    case 'start':
+      startRecording(cmd.streamId, cmd.includeMic);
       break;
-    case 'STOP_RECORDING':
+    case 'stop':
       stopRecording();
       break;
-    case 'CANCEL_RECORDING':
+    case 'cancel':
       cancelRecording();
       break;
   }
 });
 
+// Also check on load — in case the command was written before this script loaded
+chrome.storage.local.get('recordingCommand', (result) => {
+  const cmd = result.recordingCommand;
+  if (cmd && cmd.action === 'start' && cmd.streamId) {
+    // Only process if the command is recent (within last 5 seconds)
+    if (cmd.ts && Date.now() - cmd.ts < 5000) {
+      console.log('[Finrep] Processing pending start command from storage');
+      startRecording(cmd.streamId, cmd.includeMic);
+    }
+  }
+});
+
+console.log('[Finrep] Offscreen document loaded and listening for commands');
+
+// ---- Recording ----
+
 async function startRecording(streamId, includeMic = false) {
   try {
+    // Clean up any previous state
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      mediaRecorder.stop();
+    }
+    if (audioContext) {
+      await audioContext.close();
+      audioContext = null;
+    }
+    stopAudioAnalyser();
+
     // Capture tab audio stream (other participants' voices + any meeting audio)
     tabStream = await navigator.mediaDevices.getUserMedia({
       audio: {
@@ -37,10 +78,13 @@ async function startRecording(streamId, includeMic = false) {
       },
     });
 
+    console.log('[Finrep] Tab audio stream acquired, tracks:', tabStream.getAudioTracks().length);
+
     // Create AudioContext and RESUME it — offscreen documents have no user gesture,
     // so the context starts suspended and produces silence unless explicitly resumed.
     audioContext = new AudioContext();
     await audioContext.resume();
+    console.log('[Finrep] AudioContext state:', audioContext.state, 'sampleRate:', audioContext.sampleRate);
 
     const tabSource = audioContext.createMediaStreamSource(tabStream);
 
@@ -61,6 +105,8 @@ async function startRecording(streamId, includeMic = false) {
             autoGainControl: true,
           },
         });
+
+        console.log('[Finrep] Microphone stream acquired');
 
         const micSource = audioContext.createMediaStreamSource(micStream);
 
@@ -114,7 +160,8 @@ async function startRecording(streamId, includeMic = false) {
         console.warn('[Finrep] Audio blob is very small, recording may be silent');
       }
 
-      // Convert blob to base64 and send to background
+      // Convert blob to base64 and send to background via message
+      // (background is guaranteed alive since it initiated the recording)
       const reader = new FileReader();
       reader.onloadend = () => {
         const base64 = reader.result.split(',')[1];
@@ -139,6 +186,9 @@ async function startRecording(streamId, includeMic = false) {
     // Collect data every 5 seconds (more frequent = less data loss on early stop)
     mediaRecorder.start(5000);
     console.log(`[Finrep] MediaRecorder started. State: ${mediaRecorder.state}`);
+
+    // Signal to background that recording actually started
+    chrome.runtime.sendMessage({ type: 'RECORDING_STARTED' });
   } catch (err) {
     console.error('[Finrep] Recording error:', err);
     stopAudioAnalyser();
@@ -152,47 +202,35 @@ async function startRecording(streamId, includeMic = false) {
 
 // ---- Audio Analyser ----
 //
-// How it works:
-// 1. AnalyserNode is connected to the audio stream AND to a silent output
-//    (GainNode with gain=0 → destination). This ensures Chrome processes
-//    audio through the analyser even when no other output is connected.
-// 2. Every 100ms we read frequency data and map it directly to bar levels.
-// 3. No hard VAD gate — we use the actual frequency energy. When nobody
-//    speaks, frequency data is naturally near zero and bars stay flat.
-//    When someone speaks, the data spikes and bars respond.
-// 4. We focus on human voice frequencies (85Hz–3.5kHz) and apply
-//    aggressive scaling so even quiet audio is visible.
-// 5. Smooth decay prevents jittery bar movement.
+// Uses frequency data directly — no hard VAD gate. When nobody speaks,
+// frequency energy is naturally near zero and bars stay flat.
+// When someone speaks, data spikes and bars respond.
 
-const DECAY_RATE = 0.82;     // How fast bars decay (0-1, higher = slower decay)
-const NUM_BARS = 20;          // Number of visualizer bars
-const NOISE_FLOOR = 10;      // Ignore frequency values below this (0-255 range)
+const DECAY_RATE = 0.82;
+const NUM_BARS = 20;
+const NOISE_FLOOR = 10;
 let previousLevels = new Array(NUM_BARS).fill(0);
-let silentGain = null;
 
 function startAudioAnalyser(sourceNode) {
   analyserNode = audioContext.createAnalyser();
-  analyserNode.fftSize = 512;     // 256 frequency bins for fine resolution
+  analyserNode.fftSize = 512;
   analyserNode.smoothingTimeConstant = 0.5;
   analyserNode.minDecibels = -90;
   analyserNode.maxDecibels = -10;
 
   sourceNode.connect(analyserNode);
 
-  // CRITICAL: Connect analyser to a silent output so Chrome actually
-  // processes audio through it. Without this, getByteFrequencyData
-  // can return all zeros in some Chrome versions.
+  // Connect analyser to a silent output so Chrome processes audio through it.
+  // Without this, getByteFrequencyData can return all zeros.
   silentGain = audioContext.createGain();
-  silentGain.gain.value = 0; // Silent — no audible output
+  silentGain.gain.value = 0;
   analyserNode.connect(silentGain);
   silentGain.connect(audioContext.destination);
 
-  const frequencyBinCount = analyserNode.frequencyBinCount; // 256
+  const frequencyBinCount = analyserNode.frequencyBinCount;
   const frequencyData = new Uint8Array(frequencyBinCount);
 
-  // Calculate bin indices for human voice range
-  // For 48kHz sample rate: each bin = sampleRate / fftSize = 48000/512 ≈ 93.75 Hz
-  // Voice range: ~85Hz to ~3500Hz → bins 1 to ~37
+  // Calculate bin indices for human voice range (85Hz - 3500Hz)
   const sampleRate = audioContext.sampleRate;
   const binWidth = sampleRate / analyserNode.fftSize;
   const startBin = Math.max(1, Math.floor(85 / binWidth));
@@ -200,19 +238,22 @@ function startAudioAnalyser(sourceNode) {
   const usableBins = endBin - startBin;
   const binsPerBar = Math.max(1, Math.floor(usableBins / NUM_BARS));
 
-  console.log(`[Finrep] Analyser: sampleRate=${sampleRate}, binWidth=${binWidth.toFixed(1)}Hz, voiceBins=${startBin}-${endBin}, binsPerBar=${binsPerBar}`);
+  console.log(`[Finrep] Analyser started: sampleRate=${sampleRate}, binWidth=${binWidth.toFixed(1)}Hz, voiceBins=${startBin}-${endBin}, binsPerBar=${binsPerBar}`);
 
   let tickCount = 0;
 
   analyserInterval = setInterval(() => {
+    if (!analyserNode) return;
+
     analyserNode.getByteFrequencyData(frequencyData);
 
-    // Log raw data periodically for debugging
+    // Debug logging every 5 seconds
     tickCount++;
-    if (tickCount % 50 === 1) { // Every 5 seconds
-      const maxVal = Math.max(...frequencyData.slice(startBin, endBin));
-      const avgVal = frequencyData.slice(startBin, endBin).reduce((a, b) => a + b, 0) / usableBins;
-      console.log(`[Finrep] Audio levels — max: ${maxVal}, avg: ${avgVal.toFixed(1)}, bins[${startBin}-${endBin}]`);
+    if (tickCount % 50 === 1) {
+      const slice = frequencyData.slice(startBin, endBin);
+      const maxVal = Math.max(...slice);
+      const avgVal = slice.reduce((a, b) => a + b, 0) / usableBins;
+      console.log(`[Finrep] Audio levels — max: ${maxVal}, avg: ${avgVal.toFixed(1)}, context: ${audioContext?.state}`);
     }
 
     const levels = [];
@@ -221,24 +262,17 @@ function startAudioAnalyser(sourceNode) {
       const barStart = startBin + i * binsPerBar;
       for (let j = 0; j < binsPerBar; j++) {
         const val = frequencyData[barStart + j] || 0;
-        // Subtract noise floor — anything below is silence
         sum += Math.max(0, val - NOISE_FLOOR);
       }
 
-      // Normalize: max possible per bin is (255 - NOISE_FLOOR)
       const avg = sum / binsPerBar / (255 - NOISE_FLOOR);
-
-      // Scale aggressively so even moderate voice shows clearly
       const scaled = Math.min(1, avg * 3.5);
-
-      // Smooth with previous value — bars decay gradually
       const smoothed = Math.max(scaled, previousLevels[i] * DECAY_RATE);
       levels.push(Math.round(smoothed * 100));
     }
 
     previousLevels = levels.map((l) => l / 100);
 
-    // Send to popup — null means "no activity" (bars stay flat)
     const hasActivity = levels.some((l) => l > 2);
     chrome.storage.local.set({ audioLevels: hasActivity ? levels : null });
   }, 100);
@@ -264,17 +298,17 @@ function stopAudioAnalyser() {
 // ---- Recording Control ----
 
 function stopRecording() {
+  console.log('[Finrep] stopRecording called, mediaRecorder state:', mediaRecorder?.state);
   if (mediaRecorder && mediaRecorder.state !== 'inactive') {
     mediaRecorder.stop();
-    console.log('[Finrep] Stop recording requested');
   }
 }
 
 function cancelRecording() {
+  console.log('[Finrep] cancelRecording called');
   stopAudioAnalyser();
 
   if (mediaRecorder) {
-    // Clear handlers BEFORE stopping so no data is processed
     mediaRecorder.ondataavailable = null;
     mediaRecorder.onstop = null;
     if (mediaRecorder.state !== 'inactive') {

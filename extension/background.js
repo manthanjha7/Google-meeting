@@ -80,12 +80,16 @@ async function startRecording(tabId, includeMic = false) {
     // Create offscreen document for MediaRecorder
     await ensureOffscreenDocument();
 
-    // Tell offscreen to start recording
-    chrome.runtime.sendMessage({
-      type: 'START_RECORDING',
-      target: 'offscreen',
-      streamId: streamId,
-      includeMic: includeMic,
+    // Tell offscreen to start recording via storage (reliable, no race condition).
+    // chrome.runtime.sendMessage can be lost if offscreen.js hasn't loaded its
+    // listener yet. Storage commands are queued and always delivered.
+    await chrome.storage.local.set({
+      recordingCommand: {
+        action: 'start',
+        streamId,
+        includeMic,
+        ts: Date.now(),
+      },
     });
 
     setBadge('REC', '#ff4444');
@@ -97,9 +101,9 @@ async function startRecording(tabId, includeMic = false) {
 }
 
 async function stopRecording() {
-  chrome.runtime.sendMessage({
-    type: 'STOP_RECORDING',
-    target: 'offscreen',
+  // Use storage-based command — reliable even if service worker just restarted
+  await chrome.storage.local.set({
+    recordingCommand: { action: 'stop', ts: Date.now() },
   });
 }
 
@@ -187,8 +191,6 @@ function base64ToBlob(base64, mimeType) {
 // ---- Message Handling ----
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.target === 'offscreen') return; // Let offscreen handle these
-
   switch (message.type) {
     case 'MEET_DETECTED':
       // Content script detected a Meet — store the tab ID, set badge, but DON'T auto-record
@@ -226,8 +228,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       });
       break;
 
+    case 'RECORDING_STARTED':
+      // Confirmation from offscreen that recording actually started
+      console.log('[Finrep] Offscreen confirmed recording started');
+      break;
+
     case 'RECORDING_COMPLETE':
       // Received from offscreen document with the recorded audio
+      // Clear the command so it doesn't re-trigger on future offscreen loads
+      chrome.storage.local.remove('recordingCommand');
       if (message.audioBase64) {
         runPipeline(message.audioBase64);
       } else {
@@ -250,12 +259,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       // User cancelled — discard recording
       getState().then(async ({ state }) => {
         if (state === 'recording') {
-          // Send cancel to offscreen (popup also sends directly as a fallback)
-          chrome.runtime.sendMessage({
-            type: 'CANCEL_RECORDING',
-            target: 'offscreen',
+          // Send cancel via storage command
+          await chrome.storage.local.set({
+            recordingCommand: { action: 'cancel', ts: Date.now() },
           });
-          // Wait briefly for offscreen to clean up before closing it
+          // Wait for offscreen to clean up before closing it
           await new Promise((resolve) => setTimeout(resolve, 500));
           await closeOffscreenDocument();
           recordingTabId = null;
@@ -298,6 +306,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true;
 
     case 'RESET':
+      chrome.storage.local.remove('recordingCommand');
       closeOffscreenDocument();
       recordingTabId = null;
       recordingStartTime = null;
