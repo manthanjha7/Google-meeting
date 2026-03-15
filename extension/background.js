@@ -2,10 +2,11 @@
 
 const API_BASE = 'http://localhost:3001/api';
 
-// Extension state: 'idle' | 'recording' | 'processing' | 'summary-ready' | 'error'
+// Extension state: 'idle' | 'meet-detected' | 'recording' | 'processing' | 'summary-ready' | 'error'
 let currentState = 'idle';
 let recordingTabId = null;
 let recordingStartTime = null;
+let meetTabId = null;
 
 // ---- State Management ----
 
@@ -24,6 +25,17 @@ async function getState() {
     state: result.extensionState || 'idle',
     data: result.stateData || {},
   };
+}
+
+// ---- Badge Management ----
+
+function setBadge(text, color) {
+  chrome.action.setBadgeText({ text });
+  chrome.action.setBadgeBackgroundColor({ color });
+}
+
+function clearBadge() {
+  chrome.action.setBadgeText({ text: '' });
 }
 
 // ---- Offscreen Document Management ----
@@ -60,6 +72,7 @@ async function startRecording(tabId) {
     recordingStartTime = Date.now();
 
     // Get media stream ID for the tab
+    // This works because it's called in response to a user gesture (popup button click)
     const streamId = await chrome.tabCapture.getMediaStreamId({
       targetTabId: tabId,
     });
@@ -74,6 +87,7 @@ async function startRecording(tabId) {
       streamId: streamId,
     });
 
+    setBadge('REC', '#ff4444');
     await setState('recording', { tabId, startTime: recordingStartTime });
   } catch (err) {
     console.error('Failed to start recording:', err);
@@ -92,6 +106,7 @@ async function stopRecording() {
 
 async function runPipeline(audioBase64) {
   try {
+    setBadge('...', '#4a4aff');
     await setState('processing', { step: 'uploading' });
 
     // Step 1: Upload audio
@@ -137,12 +152,14 @@ async function runPipeline(audioBase64) {
     if (!summarizeRes.ok) throw new Error(summarizeData.error || 'Summarization failed');
 
     // Pipeline complete
+    clearBadge();
     await setState('summary-ready', {
       meetingId,
       summary: summarizeData.summary,
     });
   } catch (err) {
     console.error('Pipeline error:', err);
+    clearBadge();
     await setState('error', { message: err.message });
   } finally {
     await closeOffscreenDocument();
@@ -172,37 +189,32 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   switch (message.type) {
     case 'MEET_DETECTED':
-      // Content script detected a Meet — store the tab ID so popup can initiate recording
-      if (currentState === 'idle' && sender.tab) {
+      // Content script detected a Meet — store the tab ID, set badge, but DON'T auto-record
+      // User must click the extension icon and press "Start Recording" (provides user gesture)
+      if (sender.tab) {
+        meetTabId = sender.tab.id;
         chrome.storage.local.set({ meetTabId: sender.tab.id });
-        startRecording(sender.tab.id);
+        if (currentState === 'idle') {
+          setBadge('MEET', '#4a4aff');
+          setState('meet-detected', { tabId: sender.tab.id, meetUrl: message.url });
+        }
       }
       break;
 
-    case 'START_RECORDING_WITH_STREAM':
-      // Popup obtained streamId via user gesture and is passing it to background
-      if (currentState === 'idle' && message.streamId) {
-        recordingTabId = message.tabId;
-        recordingStartTime = Date.now();
-        (async () => {
-          try {
-            await ensureOffscreenDocument();
-            chrome.runtime.sendMessage({
-              type: 'START_RECORDING',
-              target: 'offscreen',
-              streamId: message.streamId,
-            });
-            await setState('recording', { tabId: message.tabId, startTime: recordingStartTime });
-          } catch (err) {
-            await setState('error', { message: 'Failed to start recording: ' + err.message });
-          }
-        })();
+    case 'START_RECORDING_REQUEST':
+      // Popup clicked "Start Recording" — user gesture context is active
+      if ((currentState === 'idle' || currentState === 'meet-detected') && message.tabId) {
+        startRecording(message.tabId);
       }
       break;
 
     case 'MEET_ENDED':
       if (currentState === 'recording') {
         stopRecording();
+      } else if (currentState === 'meet-detected') {
+        meetTabId = null;
+        clearBadge();
+        setState('idle');
       }
       break;
 
@@ -210,6 +222,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       // Received from offscreen document with the recorded audio
       if (message.audioBase64) {
         runPipeline(message.audioBase64);
+      } else {
+        clearBadge();
+        setState('error', { message: message.error || 'Recording failed — no audio data' });
       }
       break;
 
@@ -230,6 +245,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         closeOffscreenDocument();
         recordingTabId = null;
         recordingStartTime = null;
+        clearBadge();
         setState('idle');
       }
       break;
@@ -248,6 +264,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           });
           const data = await res.json();
           if (!res.ok) throw new Error(data.error || 'Slack send failed');
+          clearBadge();
           await setState('idle');
           sendResponse({ success: true });
         } catch (err) {
@@ -257,18 +274,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true; // Keep message channel open for async response
 
     case 'GET_STATE':
-      getState().then(sendResponse);
+      getState().then((stateObj) => {
+        // Also include meetTabId so popup knows which tab to capture
+        stateObj.data.meetTabId = meetTabId;
+        sendResponse(stateObj);
+      });
       return true;
 
     case 'RESET':
       closeOffscreenDocument();
       recordingTabId = null;
       recordingStartTime = null;
+      meetTabId = null;
+      clearBadge();
       setState('idle');
       break;
   }
 });
 
 // Initialize state on install/startup
-chrome.runtime.onInstalled.addListener(() => setState('idle'));
-chrome.runtime.onStartup.addListener(() => setState('idle'));
+chrome.runtime.onInstalled.addListener(() => {
+  clearBadge();
+  setState('idle');
+});
+chrome.runtime.onStartup.addListener(() => {
+  clearBadge();
+  setState('idle');
+});

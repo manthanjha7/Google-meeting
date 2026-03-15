@@ -16,7 +16,15 @@
     <div id="state-idle" class="state">
       <div class="status-icon idle-icon">&#9679;</div>
       <p class="status-text">No active meeting detected</p>
-      <p class="hint">Open a Google Meet to start recording automatically</p>
+      <p class="hint">Open a Google Meet to get started</p>
+    </div>
+
+    <!-- Meet Detected State -->
+    <div id="state-meet-detected" class="state hidden">
+      <div class="status-icon detected-icon">&#9679;</div>
+      <p class="status-text">Google Meet detected!</p>
+      <p class="hint">Click below to start capturing audio</p>
+      <button id="btn-start" class="btn btn-primary btn-start">Start Recording</button>
     </div>
 
     <!-- Recording State -->

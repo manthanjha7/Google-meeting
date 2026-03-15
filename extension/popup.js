@@ -1,12 +1,13 @@
 // Popup script — manages UI state and communicates with background service worker
 
-const states = ['idle', 'recording', 'processing', 'summary', 'error'];
+const states = ['idle', 'meet-detected', 'recording', 'processing', 'summary', 'error'];
 let timerInterval = null;
 
 // ---- DOM Elements ----
 
 const elements = {
   stateIdle: document.getElementById('state-idle'),
+  stateMeetDetected: document.getElementById('state-meet-detected'),
   stateRecording: document.getElementById('state-recording'),
   stateProcessing: document.getElementById('state-processing'),
   stateSummary: document.getElementById('state-summary'),
@@ -19,6 +20,7 @@ const elements = {
   summaryActions: document.getElementById('summary-actions'),
   callType: document.getElementById('call-type'),
   errorMessage: document.getElementById('error-message'),
+  btnStart: document.getElementById('btn-start'),
   btnStop: document.getElementById('btn-stop'),
   btnCancel: document.getElementById('btn-cancel'),
   btnSendSlack: document.getElementById('btn-send-slack'),
@@ -72,6 +74,8 @@ function renderSummary(summary) {
       <h3>Key Decisions</h3>
       <ul>${summary.decisions.map((d) => `<li>${escapeHtml(d)}</li>`).join('')}</ul>
     `;
+  } else {
+    elements.summaryDecisions.innerHTML = '';
   }
 
   if (summary.actionItems && summary.actionItems.length) {
@@ -79,6 +83,8 @@ function renderSummary(summary) {
       <h3>Action Items</h3>
       <ul>${summary.actionItems.map((a) => `<li>${escapeHtml(a)}</li>`).join('')}</ul>
     `;
+  } else {
+    elements.summaryActions.innerHTML = '';
   }
 }
 
@@ -119,6 +125,11 @@ async function syncState() {
         stopTimer();
         break;
 
+      case 'meet-detected':
+        showState('meet-detected');
+        stopTimer();
+        break;
+
       case 'recording':
         showState('recording');
         if (data.startTime) startTimer(data.startTime);
@@ -149,6 +160,43 @@ async function syncState() {
 }
 
 // ---- Event Listeners ----
+
+elements.btnStart.addEventListener('click', async () => {
+  const btn = elements.btnStart;
+  btn.disabled = true;
+  btn.textContent = 'Starting...';
+
+  // Get the active tab to record
+  const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+  if (!activeTab) {
+    btn.textContent = 'No active tab found';
+    btn.disabled = false;
+    return;
+  }
+
+  // Check if we're on a Google Meet page
+  const isGoogleMeet = activeTab.url && activeTab.url.includes('meet.google.com');
+  if (!isGoogleMeet) {
+    btn.textContent = 'Not on Google Meet';
+    setTimeout(() => {
+      btn.textContent = 'Start Recording';
+      btn.disabled = false;
+    }, 2000);
+    return;
+  }
+
+  // Send request to background to start recording
+  // The extension is "invoked" because user clicked the popup, so tabCapture will work
+  chrome.runtime.sendMessage({
+    type: 'START_RECORDING_REQUEST',
+    tabId: activeTab.id,
+  });
+
+  // Close popup — recording state will be shown when popup is reopened
+  // Small delay so the message is sent first
+  setTimeout(() => window.close(), 300);
+});
 
 elements.btnStop.addEventListener('click', () => {
   chrome.runtime.sendMessage({ type: 'STOP_REQUESTED' });
@@ -194,7 +242,6 @@ elements.btnSendSlack.addEventListener('click', async () => {
 });
 
 elements.btnRetry.addEventListener('click', () => {
-  // Re-trigger the pipeline from where it failed
   syncState();
 });
 

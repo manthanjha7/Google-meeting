@@ -47,6 +47,11 @@ header h1 {
   color: #555;
 }
 
+.detected-icon {
+  color: #4a4aff;
+  animation: pulse 1.5s infinite;
+}
+
 .recording-icon {
   color: #ff4444;
   animation: pulse 1.5s infinite;
@@ -112,6 +117,19 @@ header h1 {
 
 .btn-primary:hover {
   background: #5c5cff;
+}
+
+.btn-primary:disabled {
+  background: #333;
+  color: #666;
+  cursor: not-allowed;
+}
+
+.btn-start {
+  width: 100%;
+  padding: 12px;
+  font-size: 14px;
+  margin-top: 12px;
 }
 
 .btn-secondary {
