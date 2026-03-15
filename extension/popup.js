@@ -114,30 +114,39 @@ function stopTimer() {
 
 // ---- Audio Visualizer ----
 
-const vizBars = [
-  document.getElementById('viz-bar-0'),
-  document.getElementById('viz-bar-1'),
-  document.getElementById('viz-bar-2'),
-  document.getElementById('viz-bar-3'),
-  document.getElementById('viz-bar-4'),
-];
+const NUM_BARS = 20;
+const vizContainer = document.getElementById('audio-visualizer');
+const vizBars = [];
+
+// Create bars dynamically
+for (let i = 0; i < NUM_BARS; i++) {
+  const bar = document.createElement('div');
+  bar.className = 'viz-bar';
+  vizContainer.appendChild(bar);
+  vizBars.push(bar);
+}
 
 function updateVisualizer(levels) {
   if (!levels || levels.length === 0) {
-    // No data — show idle bounce animation
+    // No voice — all bars at minimum, remove active glow
     vizBars.forEach((bar) => {
-      bar.classList.add('idle-bounce');
-      bar.style.height = '';
+      bar.style.height = '3px';
+      bar.classList.remove('active');
     });
     return;
   }
 
   vizBars.forEach((bar, i) => {
-    bar.classList.remove('idle-bounce');
-    // Map level (0-100) to height (4px - 44px)
     const level = levels[i] || 0;
-    const height = 4 + (level / 100) * 40;
+    // Map level (0-100) to height (3px - 48px)
+    const height = 3 + (level / 100) * 45;
     bar.style.height = `${height}px`;
+
+    if (level > 5) {
+      bar.classList.add('active');
+    } else {
+      bar.classList.remove('active');
+    }
   });
 }
 
@@ -163,7 +172,7 @@ async function syncState() {
       case 'recording':
         showState('recording');
         if (data.startTime) startTimer(data.startTime);
-        // Start visualizer — show idle bounce until real audio data arrives
+        // Load current audio levels (bars stay flat until someone speaks)
         chrome.storage.local.get('audioLevels', (result) => {
           updateVisualizer(result.audioLevels || null);
         });
@@ -239,10 +248,28 @@ elements.btnStart.addEventListener('click', async () => {
 });
 
 elements.btnStop.addEventListener('click', () => {
+  // Immediate visual feedback
+  elements.btnStop.disabled = true;
+  elements.btnStop.textContent = 'Stopping...';
+
+  // Send stop directly to offscreen (bypasses background service worker which may be asleep)
+  chrome.runtime.sendMessage({ type: 'STOP_RECORDING', target: 'offscreen' });
+  // Also notify background so it knows to expect RECORDING_COMPLETE
   chrome.runtime.sendMessage({ type: 'STOP_REQUESTED' });
+
+  // Fallback: if nothing happens within 5s, reset the button so user can try again
+  setTimeout(() => {
+    if (elements.btnStop.disabled) {
+      elements.btnStop.disabled = false;
+      elements.btnStop.textContent = 'Stop Recording';
+    }
+  }, 5000);
 });
 
 elements.btnCancel.addEventListener('click', () => {
+  // Send cancel directly to offscreen
+  chrome.runtime.sendMessage({ type: 'CANCEL_RECORDING', target: 'offscreen' });
+  // Also notify background to clean up state
   chrome.runtime.sendMessage({ type: 'CANCEL_REQUESTED' });
   showState('idle');
   stopTimer();

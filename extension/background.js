@@ -129,6 +129,7 @@ async function runPipeline(audioBase64) {
     if (!uploadRes.ok) throw new Error(uploadData.error || 'Upload failed');
 
     const { meetingId } = uploadData;
+    if (!meetingId) throw new Error('Server did not return a meeting ID');
 
     // Step 2: Transcribe
     await setState('processing', { step: 'transcribing', meetingId });
@@ -247,17 +248,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     case 'CANCEL_REQUESTED':
       // User cancelled — discard recording
-      getState().then(({ state }) => {
+      getState().then(async ({ state }) => {
         if (state === 'recording') {
+          // Send cancel to offscreen (popup also sends directly as a fallback)
           chrome.runtime.sendMessage({
             type: 'CANCEL_RECORDING',
             target: 'offscreen',
           });
-          closeOffscreenDocument();
+          // Wait briefly for offscreen to clean up before closing it
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          await closeOffscreenDocument();
           recordingTabId = null;
           recordingStartTime = null;
           clearBadge();
-          setState('idle');
+          await setState('idle');
         }
       });
       break;
@@ -304,12 +308,39 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 });
 
-// Initialize state on install/startup
+// ---- Initialization ----
+
+// Restore in-memory state from storage (service worker may have been terminated and restarted)
+async function restoreState() {
+  const result = await chrome.storage.local.get(['extensionState', 'stateData', 'meetTabId']);
+  currentState = result.extensionState || 'idle';
+  meetTabId = result.meetTabId || null;
+
+  if (currentState === 'recording' && result.stateData) {
+    recordingTabId = result.stateData.tabId || null;
+    recordingStartTime = result.stateData.startTime || null;
+  }
+
+  // Restore badge based on state
+  if (currentState === 'recording') {
+    setBadge('REC', '#ff4444');
+  } else if (currentState === 'meet-detected') {
+    setBadge('MEET', '#4a4aff');
+  } else if (currentState === 'processing') {
+    setBadge('...', '#4a4aff');
+  }
+}
+
+// On install, reset to clean state
 chrome.runtime.onInstalled.addListener(() => {
   clearBadge();
   setState('idle');
 });
+
+// On startup (browser opened), restore from storage
 chrome.runtime.onStartup.addListener(() => {
-  clearBadge();
-  setState('idle');
+  restoreState();
 });
+
+// Also restore immediately when script loads (handles service worker restart mid-session)
+restoreState();

@@ -62,33 +62,25 @@ header h1 {
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  gap: 6px;
-  height: 48px;
+  gap: 3px;
+  height: 52px;
   margin-bottom: 12px;
+  padding: 0 8px;
 }
 
 .viz-bar {
-  width: 6px;
-  min-height: 4px;
-  height: 4px;
-  border-radius: 3px;
-  background: linear-gradient(to top, #4a4aff, #ff4444);
-  transition: height 0.1s ease-out;
+  width: 4px;
+  height: 3px;
+  min-height: 3px;
+  border-radius: 2px;
+  background: #4a4aff;
+  transition: height 0.08s ease-out;
 }
 
-/* Idle bounce animation when no audio data is flowing */
-.viz-bar.idle-bounce {
-  animation: idleBounce 1.2s ease-in-out infinite;
-}
-.viz-bar.idle-bounce:nth-child(1) { animation-delay: 0s; }
-.viz-bar.idle-bounce:nth-child(2) { animation-delay: 0.15s; }
-.viz-bar.idle-bounce:nth-child(3) { animation-delay: 0.3s; }
-.viz-bar.idle-bounce:nth-child(4) { animation-delay: 0.45s; }
-.viz-bar.idle-bounce:nth-child(5) { animation-delay: 0.6s; }
-
-@keyframes idleBounce {
-  0%, 100% { height: 6px; }
-  50% { height: 16px; }
+/* When speaking, bars glow */
+.viz-bar.active {
+  background: linear-gradient(to top, #4a4aff, #8a6aff);
+  box-shadow: 0 0 4px rgba(74, 74, 255, 0.4);
 }
 
 .error-icon {
