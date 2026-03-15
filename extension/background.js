@@ -194,28 +194,34 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (sender.tab) {
         meetTabId = sender.tab.id;
         chrome.storage.local.set({ meetTabId: sender.tab.id });
-        if (currentState === 'idle') {
-          setBadge('MEET', '#4a4aff');
-          setState('meet-detected', { tabId: sender.tab.id, meetUrl: message.url });
-        }
+        getState().then(({ state }) => {
+          if (state === 'idle') {
+            setBadge('MEET', '#4a4aff');
+            setState('meet-detected', { tabId: sender.tab.id, meetUrl: message.url });
+          }
+        });
       }
       break;
 
     case 'START_RECORDING_REQUEST':
       // Popup clicked "Start Recording" — user gesture context is active
-      if ((currentState === 'idle' || currentState === 'meet-detected') && message.tabId) {
-        startRecording(message.tabId);
-      }
+      getState().then(({ state }) => {
+        if ((state === 'idle' || state === 'meet-detected') && message.tabId) {
+          startRecording(message.tabId);
+        }
+      });
       break;
 
     case 'MEET_ENDED':
-      if (currentState === 'recording') {
-        stopRecording();
-      } else if (currentState === 'meet-detected') {
-        meetTabId = null;
-        clearBadge();
-        setState('idle');
-      }
+      getState().then(({ state }) => {
+        if (state === 'recording') {
+          stopRecording();
+        } else if (state === 'meet-detected') {
+          meetTabId = null;
+          clearBadge();
+          setState('idle');
+        }
+      });
       break;
 
     case 'RECORDING_COMPLETE':
@@ -230,24 +236,29 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     case 'STOP_REQUESTED':
       // User manually stopped recording from popup
-      if (currentState === 'recording') {
-        stopRecording();
-      }
+      // Read from storage because service worker may have restarted and lost in-memory state
+      getState().then(({ state }) => {
+        if (state === 'recording') {
+          stopRecording();
+        }
+      });
       break;
 
     case 'CANCEL_REQUESTED':
       // User cancelled — discard recording
-      if (currentState === 'recording') {
-        chrome.runtime.sendMessage({
-          type: 'CANCEL_RECORDING',
-          target: 'offscreen',
-        });
-        closeOffscreenDocument();
-        recordingTabId = null;
-        recordingStartTime = null;
-        clearBadge();
-        setState('idle');
-      }
+      getState().then(({ state }) => {
+        if (state === 'recording') {
+          chrome.runtime.sendMessage({
+            type: 'CANCEL_RECORDING',
+            target: 'offscreen',
+          });
+          closeOffscreenDocument();
+          recordingTabId = null;
+          recordingStartTime = null;
+          clearBadge();
+          setState('idle');
+        }
+      });
       break;
 
     case 'SEND_TO_SLACK':
