@@ -312,7 +312,7 @@ elements.btnStop.addEventListener('click', () => {
 elements.btnCancel.addEventListener('click', () => {
   chrome.runtime.sendMessage({ type: 'CANCEL_RECORDING', target: 'offscreen' });
   chrome.runtime.sendMessage({ type: 'CANCEL_REQUESTED' });
-  showState('idle');
+  // Don't hardcode idle — let background redetect meeting and drive state via syncState
   stopTimer();
 });
 
@@ -337,7 +337,7 @@ elements.btnSendSlack.addEventListener('click', async () => {
       if (response?.success) {
         btn.textContent = 'Sent!';
         setTimeout(() => {
-          showState('idle');
+          // Don't hardcode idle — background will redetect meeting and update state
           btn.textContent = 'Send to Slack';
           btn.disabled = false;
         }, 2000);
@@ -355,7 +355,7 @@ elements.btnRetry.addEventListener('click', () => {
 
 elements.btnReset.addEventListener('click', () => {
   chrome.runtime.sendMessage({ type: 'RESET' });
-  showState('idle');
+  // Don't hardcode idle — background will redetect meeting and update state
   stopTimer();
 });
 

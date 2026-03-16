@@ -358,7 +358,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           const data = await res.json();
           if (!res.ok) throw new Error(data.error || 'Slack send failed');
           clearBadge();
-          await setState('idle');
+          // Re-detect meeting instead of going to idle
+          await redetectMeeting();
           sendResponse({ success: true });
         } catch (err) {
           sendResponse({ success: false, error: err.message });
