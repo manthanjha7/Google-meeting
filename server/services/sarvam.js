@@ -1,13 +1,18 @@
 const fs = require('fs');
 const path = require('path');
+const { BlobServiceClient } = require('@azure/storage-blob');
 
-const SARVAM_STT_URL = 'https://api.sarvam.ai/speech-to-text';
-const SARVAM_BATCH_URL = 'https://api.sarvam.ai/speech-to-text/batch';
+const SARVAM_BASE = 'https://api.sarvam.ai';
+const SARVAM_JOB_INIT = `${SARVAM_BASE}/speech-to-text/job/init`;
+const SARVAM_JOB_START = `${SARVAM_BASE}/speech-to-text/job`;
+const SARVAM_JOB_STATUS = (jobId) => `${SARVAM_BASE}/speech-to-text/job/${jobId}/status`;
+
+const POLL_INTERVAL_MS = 10_000; // 10 seconds
+const MAX_POLL_TIME_MS = 10 * 60_000; // 10 minutes
 
 /**
- * Transcribe an audio file using Sarvam STT REST API.
- * Enables timestamps and diarization for better accuracy.
- * REST API supports files up to ~30 seconds.
+ * Transcribe an audio file using Sarvam Batch STT API.
+ * Supports diarization and files up to 1 hour.
  */
 async function transcribe(audioFilePath, { numSpeakers } = {}) {
   const apiKey = process.env.SARVAM_API_KEY;
@@ -24,46 +29,184 @@ async function transcribe(audioFilePath, { numSpeakers } = {}) {
     throw new Error(`Audio file too small (${audioBuffer.length} bytes) — recording may have failed`);
   }
 
-  // Use the real-time API (free plan supports up to ~30s audio)
-  // Note: diarization requires the batch API which needs a paid plan,
-  // so we use timestamps-only on the real-time endpoint
-  const formData = new FormData();
-  formData.append('file', new Blob([audioBuffer]), fileName);
-  formData.append('model', 'saaras:v3');
-  formData.append('language_code', 'unknown');
-  formData.append('with_timestamps', 'true');
+  const headers = {
+    'API-Subscription-Key': apiKey,
+    'Content-Type': 'application/json',
+  };
 
-  const response = await fetch(SARVAM_STT_URL, {
+  // Step 1: Initialize batch job
+  const initRes = await fetch(SARVAM_JOB_INIT, {
     method: 'POST',
-    headers: {
-      'api-subscription-key': apiKey,
-    },
-    body: formData,
+    headers,
   });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Sarvam STT failed (${response.status}): ${errorText}`);
+  if (!initRes.ok) {
+    const errorText = await initRes.text();
+    throw new Error(`Sarvam job init failed (${initRes.status}): ${errorText}`);
   }
 
-  const result = await response.json();
+  const initData = await initRes.json();
+  const jobId = initData.job_id;
+  const inputPath = initData.input;
+  const outputPath = initData.output;
 
-  // If diarized transcript is available, format it with speaker labels
-  if (result.diarized_transcript && result.diarized_transcript.length > 0) {
-    return formatDiarizedTranscript(result.diarized_transcript);
+  if (!jobId || !inputPath) {
+    throw new Error(`Sarvam job init returned unexpected data: ${JSON.stringify(initData)}`);
   }
 
-  // If timestamps are available, format with time markers
-  if (result.timestamps && result.timestamps.length > 0) {
-    return formatTimestampedTranscript(result.timestamps, result.transcript || result.text || '');
+  // Step 2: Upload audio file to Azure Blob Storage input path
+  await uploadToAzureBlob(inputPath, audioBuffer, fileName);
+
+  // Step 3: Start the job with diarization enabled
+  const jobConfig = {
+    job_id: jobId,
+    language_code: 'unknown',
+    model: 'saaras:v3',
+    with_timestamps: true,
+    with_diarization: true,
+  };
+  if (numSpeakers) {
+    jobConfig.num_speakers = numSpeakers;
   }
 
-  return result.transcript || result.text || '';
+  const startRes = await fetch(SARVAM_JOB_START, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(jobConfig),
+  });
+
+  if (!startRes.ok) {
+    const errorText = await startRes.text();
+    throw new Error(`Sarvam job start failed (${startRes.status}): ${errorText}`);
+  }
+
+  // Step 4: Poll for job completion
+  const startTime = Date.now();
+  let status = 'Pending';
+
+  while (status !== 'Completed' && status !== 'Failed') {
+    if (Date.now() - startTime > MAX_POLL_TIME_MS) {
+      throw new Error(`Sarvam batch job timed out after ${MAX_POLL_TIME_MS / 60000} minutes (job: ${jobId})`);
+    }
+
+    await sleep(POLL_INTERVAL_MS);
+
+    const statusRes = await fetch(SARVAM_JOB_STATUS(jobId), {
+      method: 'GET',
+      headers: { 'API-Subscription-Key': apiKey },
+    });
+
+    if (!statusRes.ok) {
+      const errorText = await statusRes.text();
+      throw new Error(`Sarvam job status failed (${statusRes.status}): ${errorText}`);
+    }
+
+    const statusData = await statusRes.json();
+    status = statusData.job_state || statusData.status;
+    console.log(`[Sarvam] Job ${jobId} status: ${status}`);
+  }
+
+  if (status === 'Failed') {
+    throw new Error(`Sarvam batch job failed (job: ${jobId})`);
+  }
+
+  // Step 5: Download results from Azure Blob Storage output path
+  const resultText = await downloadFromAzureBlob(outputPath);
+  if (!resultText) {
+    throw new Error('Sarvam batch job completed but no output found');
+  }
+
+  // Parse result — batch API returns JSON with transcript data
+  try {
+    const result = JSON.parse(resultText);
+
+    // If diarized transcript is available, format with speaker labels
+    if (result.diarized_transcript && result.diarized_transcript.length > 0) {
+      return formatDiarizedTranscript(result.diarized_transcript);
+    }
+
+    // If timestamps are available, format with time markers
+    if (result.timestamps && result.timestamps.length > 0) {
+      return formatTimestampedTranscript(result.timestamps, result.transcript || result.text || '');
+    }
+
+    return result.transcript || result.text || '';
+  } catch {
+    // If result is plain text, return as-is
+    return resultText;
+  }
+}
+
+/**
+ * Upload a file to Azure Blob Storage using a SAS URL.
+ */
+async function uploadToAzureBlob(sasUrl, fileBuffer, fileName) {
+  const { accountUrl, containerName, directoryPath, sasToken } = parseAzureBlobUrl(sasUrl);
+
+  const blobServiceClient = new BlobServiceClient(`${accountUrl}?${sasToken}`);
+  const containerClient = blobServiceClient.getContainerClient(containerName);
+  const blobPath = directoryPath ? `${directoryPath}/${fileName}` : fileName;
+  const blockBlobClient = containerClient.getBlockBlobClient(blobPath);
+
+  const ext = path.extname(fileName).toLowerCase();
+  const mimeTypes = {
+    '.wav': 'audio/wav',
+    '.mp3': 'audio/mpeg',
+    '.webm': 'audio/webm',
+    '.ogg': 'audio/ogg',
+    '.m4a': 'audio/mp4',
+    '.aac': 'audio/aac',
+    '.flac': 'audio/flac',
+  };
+
+  await blockBlobClient.upload(fileBuffer, fileBuffer.length, {
+    blobHTTPHeaders: { blobContentType: mimeTypes[ext] || 'audio/wav' },
+  });
+}
+
+/**
+ * Download all result files from Azure Blob Storage output path.
+ */
+async function downloadFromAzureBlob(sasUrl) {
+  const { accountUrl, containerName, directoryPath, sasToken } = parseAzureBlobUrl(sasUrl);
+
+  const blobServiceClient = new BlobServiceClient(`${accountUrl}?${sasToken}`);
+  const containerClient = blobServiceClient.getContainerClient(containerName);
+
+  const results = [];
+  const prefix = directoryPath ? `${directoryPath}/` : '';
+
+  for await (const blob of containerClient.listBlobsFlat({ prefix })) {
+    if (blob.name.endsWith('.json') || blob.name.endsWith('.txt')) {
+      const blobClient = containerClient.getBlobClient(blob.name);
+      const downloadRes = await blobClient.download(0);
+      const chunks = [];
+      for await (const chunk of downloadRes.readableStreamBody) {
+        chunks.push(chunk);
+      }
+      results.push(Buffer.concat(chunks).toString('utf-8'));
+    }
+  }
+
+  return results.join('\n');
+}
+
+/**
+ * Parse an Azure Blob Storage SAS URL into components.
+ */
+function parseAzureBlobUrl(url) {
+  const urlObj = new URL(url);
+  const accountUrl = `${urlObj.protocol}//${urlObj.host}`;
+  const pathParts = urlObj.pathname.split('/').filter(Boolean);
+  const containerName = pathParts[0] || '';
+  const directoryPath = pathParts.slice(1).join('/');
+  const sasToken = urlObj.search.substring(1); // remove leading '?'
+
+  return { accountUrl, containerName, directoryPath, sasToken };
 }
 
 /**
  * Format diarized transcript with speaker labels and timestamps.
- * Input: array of { speaker, text, start_time, end_time } segments
  */
 function formatDiarizedTranscript(segments) {
   const lines = [];
@@ -78,7 +221,6 @@ function formatDiarizedTranscript(segments) {
       ? `[${formatTime(seg.start_time)}]`
       : '';
 
-    // Group consecutive segments from the same speaker
     if (speaker === lastSpeaker && lines.length > 0) {
       lines[lines.length - 1] += ' ' + text;
     } else {
@@ -105,7 +247,6 @@ function formatTimestampedTranscript(timestamps, fullTranscript) {
     if (lineStart === null) lineStart = ts.start_time || 0;
     currentLine += (currentLine ? ' ' : '') + word;
 
-    // Break into ~15-word segments for readability
     if (currentLine.split(' ').length >= 15) {
       lines.push(`[${formatTime(lineStart)}] ${currentLine.trim()}`);
       currentLine = '';
@@ -127,6 +268,10 @@ function formatTime(seconds) {
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
   return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 module.exports = { transcribe };

@@ -9,11 +9,12 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.52.0",
+    "@azure/storage-blob": "^12.31.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
     "express": "^4.21.0",
     "multer": "^1.4.5-lts.1",
-    "cors": "^2.8.5",
     "sql.js": "^1.11.0",
-    "dotenv": "^16.4.7",
     "uuid": "^11.0.0"
   }
 }
