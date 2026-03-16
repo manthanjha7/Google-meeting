@@ -58,21 +58,23 @@ async function transcribe(audioFilePath, { numSpeakers } = {}) {
   await uploadToAzureBlob(inputPath, audioBuffer, fileName);
 
   // Step 3: Start the job with diarization enabled
-  const jobConfig = {
-    job_id: jobId,
+  const jobParameters = {
     language_code: 'unknown',
     model: 'saaras:v3',
     with_timestamps: true,
     with_diarization: true,
   };
   if (numSpeakers) {
-    jobConfig.num_speakers = numSpeakers;
+    jobParameters.num_speakers = numSpeakers;
   }
 
   const startRes = await fetch(SARVAM_JOB_START, {
     method: 'POST',
     headers,
-    body: JSON.stringify(jobConfig),
+    body: JSON.stringify({
+      job_id: jobId,
+      job_parameters: jobParameters,
+    }),
   });
 
   if (!startRes.ok) {
