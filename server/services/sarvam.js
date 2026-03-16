@@ -122,19 +122,41 @@ async function transcribe(audioFilePath, { numSpeakers } = {}) {
   try {
     const result = JSON.parse(resultText);
 
-    // If diarized transcript is available, format with speaker labels
-    if (result.diarized_transcript && result.diarized_transcript.length > 0) {
-      return formatDiarizedTranscript(result.diarized_transcript);
+    // Log the full response structure for debugging
+    console.log('[Sarvam] Response keys:', Object.keys(result));
+    console.log('[Sarvam] Full response (first 2000 chars):', JSON.stringify(result).substring(0, 2000));
+
+    // Sarvam batch API may return results in different structures
+    // Check for array of segments (common batch format)
+    const segments = result.diarized_transcript
+      || result.diarized_segments
+      || result.segments
+      || result.utterances
+      || result.results;
+
+    if (Array.isArray(segments) && segments.length > 0) {
+      console.log('[Sarvam] Found diarized segments:', segments.length, 'Sample:', JSON.stringify(segments[0]));
+      return formatDiarizedTranscript(segments);
+    }
+
+    // Check if result itself is an array of segments
+    if (Array.isArray(result) && result.length > 0 && (result[0].speaker || result[0].text || result[0].transcript)) {
+      console.log('[Sarvam] Result is array of segments:', result.length);
+      return formatDiarizedTranscript(result);
     }
 
     // If timestamps are available, format with time markers
-    if (result.timestamps && result.timestamps.length > 0) {
-      return formatTimestampedTranscript(result.timestamps, result.transcript || result.text || '');
+    const timestamps = result.timestamps || result.words;
+    if (Array.isArray(timestamps) && timestamps.length > 0) {
+      return formatTimestampedTranscript(timestamps, result.transcript || result.text || '');
     }
 
-    return result.transcript || result.text || '';
-  } catch {
+    const plainTranscript = result.transcript || result.text || '';
+    console.log('[Sarvam] Falling back to plain transcript, length:', plainTranscript.length);
+    return plainTranscript;
+  } catch (parseErr) {
     // If result is plain text, return as-is
+    console.log('[Sarvam] Could not parse as JSON, returning raw text. Error:', parseErr.message);
     return resultText;
   }
 }
@@ -175,22 +197,31 @@ async function downloadFromAzureBlob(sasUrl) {
   const blobServiceClient = new BlobServiceClient(`${accountUrl}?${sasToken}`);
   const containerClient = blobServiceClient.getContainerClient(containerName);
 
-  const results = [];
+  const jsonResults = [];
+  const txtResults = [];
   const prefix = directoryPath ? `${directoryPath}/` : '';
 
   for await (const blob of containerClient.listBlobsFlat({ prefix })) {
-    if (blob.name.endsWith('.json') || blob.name.endsWith('.txt')) {
-      const blobClient = containerClient.getBlobClient(blob.name);
-      const downloadRes = await blobClient.download(0);
-      const chunks = [];
-      for await (const chunk of downloadRes.readableStreamBody) {
-        chunks.push(chunk);
-      }
-      results.push(Buffer.concat(chunks).toString('utf-8'));
+    const blobClient = containerClient.getBlobClient(blob.name);
+    const downloadRes = await blobClient.download(0);
+    const chunks = [];
+    for await (const chunk of downloadRes.readableStreamBody) {
+      chunks.push(chunk);
+    }
+    const content = Buffer.concat(chunks).toString('utf-8');
+    console.log(`[Sarvam] Downloaded blob: ${blob.name} (${content.length} chars)`);
+
+    if (blob.name.endsWith('.json')) {
+      jsonResults.push(content);
+    } else if (blob.name.endsWith('.txt')) {
+      txtResults.push(content);
     }
   }
 
-  return results.join('\n');
+  // Prefer JSON results over text
+  if (jsonResults.length > 0) return jsonResults[0];
+  if (txtResults.length > 0) return txtResults[0];
+  return null;
 }
 
 /**
@@ -215,12 +246,15 @@ function formatDiarizedTranscript(segments) {
   let lastSpeaker = null;
 
   for (const seg of segments) {
-    const speaker = seg.speaker || 'Unknown';
-    const text = (seg.text || seg.transcript || '').trim();
+    // Handle various field names from Sarvam API
+    const speaker = seg.speaker || seg.speaker_id || seg.speaker_label || 'Unknown';
+    const text = (seg.text || seg.transcript || seg.content || '').trim();
     if (!text) continue;
 
-    const timestamp = seg.start_time != null
-      ? `[${formatTime(seg.start_time)}]`
+    // Handle various timestamp field names
+    const startTime = seg.start_time ?? seg.start ?? seg.startTime ?? seg.begin ?? null;
+    const timestamp = startTime != null
+      ? `[${formatTime(startTime)}]`
       : '';
 
     if (speaker === lastSpeaker && lines.length > 0) {
