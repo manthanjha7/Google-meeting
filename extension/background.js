@@ -199,6 +199,41 @@ function base64ToBlob(base64, mimeType) {
   return new Blob(byteArrays, { type: mimeType });
 }
 
+// ---- Re-detect Meeting ----
+
+async function redetectMeeting() {
+  try {
+    // Query for any active Google Meet tab
+    const tabs = await chrome.tabs.query({ url: ['https://meet.google.com/*', 'https://meet.new/*'] });
+    let found = false;
+
+    for (const tab of tabs) {
+      try {
+        // Ask the content script if a meeting is active
+        const response = await chrome.tabs.sendMessage(tab.id, { type: 'CHECK_MEETING' });
+        if (response?.active) {
+          meetTabId = tab.id;
+          chrome.storage.local.set({ meetTabId: tab.id });
+          setBadge('MEET', '#4a4aff');
+          await setState('note-prompt', { tabId: tab.id, meetUrl: tab.url });
+          found = true;
+          break;
+        }
+      } catch {
+        // Content script may not be injected or tab may not respond — skip
+      }
+    }
+
+    if (!found) {
+      meetTabId = null;
+      await setState('idle');
+    }
+  } catch {
+    meetTabId = null;
+    await setState('idle');
+  }
+}
+
 // ---- Message Handling ----
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -341,10 +376,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       closeOffscreenDocument();
       recordingTabId = null;
       recordingStartTime = null;
-      meetTabId = null;
       pendingStartCommand = null;
       clearBadge();
-      setState('idle');
+      // After resetting, check if user is still in a meeting and re-detect
+      redetectMeeting();
       break;
   }
 });

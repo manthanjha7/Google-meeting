@@ -236,7 +236,7 @@ elements.btnStart.addEventListener('click', async () => {
   }
 
   // Check if we're on a Google Meet page
-  const isGoogleMeet = activeTab.url && activeTab.url.includes('meet.google.com');
+  const isGoogleMeet = activeTab.url && (activeTab.url.includes('meet.google.com') || activeTab.url.includes('meet.new'));
   if (!isGoogleMeet) {
     btn.textContent = 'Not on Google Meet';
     setTimeout(() => {

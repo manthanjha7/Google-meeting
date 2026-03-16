@@ -55,6 +55,15 @@
     });
   }
 
+  // Respond to CHECK_MEETING from background (used after reset)
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.type === 'CHECK_MEETING') {
+      const endCallButton = document.querySelector('[data-tooltip="Leave call"]') ||
+        document.querySelector('[aria-label="Leave call"]');
+      sendResponse({ active: !!endCallButton });
+    }
+  });
+
   // Wait for page to be ready, then start observing
   if (document.readyState === 'complete') {
     startObserver();
