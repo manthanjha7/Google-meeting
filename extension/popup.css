@@ -337,6 +337,58 @@ header h1 {
   padding-left: 4px;
 }
 
+/* Note-Taking Prompt */
+.note-prompt-card {
+  background: #22224a;
+  border: 1px solid #3a3a6a;
+  border-radius: 12px;
+  padding: 24px 20px;
+  text-align: center;
+}
+
+.note-prompt-icon {
+  font-size: 40px;
+  margin-bottom: 12px;
+}
+
+.note-prompt-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #e0e0ff;
+  margin-bottom: 8px;
+}
+
+.note-prompt-text {
+  font-size: 14px;
+  color: #ccc;
+  margin-bottom: 6px;
+}
+
+.note-prompt-hint {
+  font-size: 11px;
+  color: #777;
+  margin-bottom: 20px;
+  line-height: 1.4;
+}
+
+.note-prompt-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.btn-enable-notes {
+  width: 100%;
+  padding: 12px;
+  font-size: 14px;
+}
+
+.btn-skip-notes {
+  width: 100%;
+  padding: 10px;
+  font-size: 13px;
+}
+
 /* Error */
 .error-text {
   color: #ff6b6b;

@@ -1,12 +1,13 @@
 // Popup script — manages UI state and communicates with background service worker
 
-const states = ['idle', 'meet-detected', 'recording', 'processing', 'summary', 'error'];
+const states = ['idle', 'note-prompt', 'meet-detected', 'recording', 'processing', 'summary', 'error'];
 let timerInterval = null;
 
 // ---- DOM Elements ----
 
 const elements = {
   stateIdle: document.getElementById('state-idle'),
+  stateNotePrompt: document.getElementById('state-note-prompt'),
   stateMeetDetected: document.getElementById('state-meet-detected'),
   stateRecording: document.getElementById('state-recording'),
   stateProcessing: document.getElementById('state-processing'),
@@ -27,6 +28,8 @@ const elements = {
   btnSendSlack: document.getElementById('btn-send-slack'),
   btnRetry: document.getElementById('btn-retry'),
   btnReset: document.getElementById('btn-reset'),
+  btnEnableNotes: document.getElementById('btn-enable-notes'),
+  btnSkipNotes: document.getElementById('btn-skip-notes'),
 };
 
 // ---- State Display ----
@@ -164,6 +167,11 @@ async function syncState() {
         stopTimer();
         break;
 
+      case 'note-prompt':
+        showState('note-prompt');
+        stopTimer();
+        break;
+
       case 'meet-detected':
         showState('meet-detected');
         stopTimer();
@@ -203,6 +211,15 @@ async function syncState() {
 }
 
 // ---- Event Listeners ----
+
+elements.btnEnableNotes.addEventListener('click', () => {
+  chrome.runtime.sendMessage({ type: 'ENABLE_NOTES' });
+});
+
+elements.btnSkipNotes.addEventListener('click', () => {
+  chrome.runtime.sendMessage({ type: 'SKIP_NOTES' });
+  showState('idle');
+});
 
 elements.btnStart.addEventListener('click', async () => {
   const btn = elements.btnStart;

@@ -19,6 +19,20 @@
       <p class="hint">Open a Google Meet to get started</p>
     </div>
 
+    <!-- Note-Taking Prompt State -->
+    <div id="state-note-prompt" class="state hidden">
+      <div class="note-prompt-card">
+        <div class="note-prompt-icon">&#128221;</div>
+        <h2 class="note-prompt-title">Meeting Detected</h2>
+        <p class="note-prompt-text">Do you want to enable note taking?</p>
+        <p class="note-prompt-hint">Finrep will record, transcribe, and summarize this meeting automatically.</p>
+        <div class="note-prompt-actions">
+          <button id="btn-enable-notes" class="btn btn-primary btn-enable-notes">Yes, Enable Notes</button>
+          <button id="btn-skip-notes" class="btn btn-secondary btn-skip-notes">No Thanks</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Meet Detected State -->
     <div id="state-meet-detected" class="state hidden">
       <div class="status-icon detected-icon">&#9679;</div>

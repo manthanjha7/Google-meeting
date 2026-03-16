@@ -220,10 +220,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         getState().then(({ state }) => {
           if (state === 'idle') {
             setBadge('MEET', '#4a4aff');
-            setState('meet-detected', { tabId: sender.tab.id, meetUrl: message.url });
+            // Show note-taking prompt before going to meet-detected
+            setState('note-prompt', { tabId: sender.tab.id, meetUrl: message.url });
           }
         });
       }
+      break;
+
+    case 'ENABLE_NOTES':
+      // User accepted note-taking — transition to meet-detected
+      getState().then(({ state, data }) => {
+        if (state === 'note-prompt') {
+          setState('meet-detected', data);
+        }
+      });
+      break;
+
+    case 'SKIP_NOTES':
+      // User declined note-taking — go back to idle
+      meetTabId = null;
+      clearBadge();
+      setState('idle');
       break;
 
     case 'START_RECORDING_REQUEST':
@@ -238,7 +255,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       getState().then(({ state }) => {
         if (state === 'recording') {
           stopRecording();
-        } else if (state === 'meet-detected') {
+        } else if (state === 'meet-detected' || state === 'note-prompt') {
           meetTabId = null;
           clearBadge();
           setState('idle');
