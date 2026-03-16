@@ -25,17 +25,23 @@ async function transcribe(audioFilePath, { numSpeakers } = {}) {
   }
 
   // Sarvam API accepts audio via multipart form data
+  // Diarization is only supported via the batch API, not the real-time API
+  const useBatchApi = true; // batch API supports diarization
+  const apiUrl = useBatchApi ? SARVAM_BATCH_URL : SARVAM_STT_URL;
+
   const formData = new FormData();
   formData.append('file', new Blob([audioBuffer]), fileName);
   formData.append('model', 'saaras:v3');
   formData.append('language_code', 'unknown');
   formData.append('with_timestamps', 'true');
-  formData.append('with_diarization', 'true');
-  if (numSpeakers) {
-    formData.append('num_speakers', String(numSpeakers));
+  if (useBatchApi) {
+    formData.append('with_diarization', 'true');
+    if (numSpeakers) {
+      formData.append('num_speakers', String(numSpeakers));
+    }
   }
 
-  const response = await fetch(SARVAM_STT_URL, {
+  const response = await fetch(apiUrl, {
     method: 'POST',
     headers: {
       'api-subscription-key': apiKey,
