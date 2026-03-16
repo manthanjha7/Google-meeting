@@ -24,24 +24,16 @@ async function transcribe(audioFilePath, { numSpeakers } = {}) {
     throw new Error(`Audio file too small (${audioBuffer.length} bytes) — recording may have failed`);
   }
 
-  // Sarvam API accepts audio via multipart form data
-  // Diarization is only supported via the batch API, not the real-time API
-  const useBatchApi = true; // batch API supports diarization
-  const apiUrl = useBatchApi ? SARVAM_BATCH_URL : SARVAM_STT_URL;
-
+  // Use the real-time API (free plan supports up to ~30s audio)
+  // Note: diarization requires the batch API which needs a paid plan,
+  // so we use timestamps-only on the real-time endpoint
   const formData = new FormData();
   formData.append('file', new Blob([audioBuffer]), fileName);
   formData.append('model', 'saaras:v3');
   formData.append('language_code', 'unknown');
   formData.append('with_timestamps', 'true');
-  if (useBatchApi) {
-    formData.append('with_diarization', 'true');
-    if (numSpeakers) {
-      formData.append('num_speakers', String(numSpeakers));
-    }
-  }
 
-  const response = await fetch(apiUrl, {
+  const response = await fetch(SARVAM_STT_URL, {
     method: 'POST',
     headers: {
       'api-subscription-key': apiKey,
