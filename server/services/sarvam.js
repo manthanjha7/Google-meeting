@@ -47,8 +47,8 @@ async function transcribe(audioFilePath, { numSpeakers } = {}) {
 
   const initData = await initRes.json();
   const jobId = initData.job_id;
-  const inputPath = initData.input;
-  const outputPath = initData.output;
+  const inputPath = initData.input_storage_path;
+  const outputPath = initData.output_storage_path;
 
   if (!jobId || !inputPath) {
     throw new Error(`Sarvam job init returned unexpected data: ${JSON.stringify(initData)}`);
