@@ -338,7 +338,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           recordingTabId = null;
           recordingStartTime = null;
           clearBadge();
-          await setState('idle');
+          // Re-detect meeting instead of going to idle
+          await redetectMeeting();
         }
       });
       break;
