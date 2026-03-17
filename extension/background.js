@@ -185,6 +185,114 @@ async function runPipeline(audioBase64) {
   }
 }
 
+/**
+ * Pipeline for multi-chunk recordings (meetings >55 min).
+ * Uploads each chunk, transcribes each separately, then merges transcripts
+ * into one meeting and summarizes.
+ */
+async function runChunkedPipeline(audioChunks) {
+  try {
+    setBadge('...', '#4a4aff');
+    const durationSeconds = recordingStartTime
+      ? Math.round((Date.now() - recordingStartTime) / 1000)
+      : 0;
+
+    console.log(`[Finrep] Chunked pipeline: ${audioChunks.length} chunks, total duration: ${durationSeconds}s`);
+
+    // Step 1: Upload first chunk to create the meeting record
+    await setState('processing', { step: 'uploading' });
+    const firstBlob = base64ToBlob(audioChunks[0], 'audio/webm');
+    const firstForm = new FormData();
+    firstForm.append('audio', firstBlob, 'meeting_chunk_1.webm');
+    firstForm.append('durationSeconds', String(durationSeconds));
+
+    const uploadRes = await fetch(`${API_BASE}/upload`, {
+      method: 'POST',
+      body: firstForm,
+    });
+    const uploadData = await uploadRes.json();
+    if (!uploadRes.ok) throw new Error(uploadData.error || 'Upload failed');
+
+    const { meetingId } = uploadData;
+    if (!meetingId) throw new Error('Server did not return a meeting ID');
+
+    // Step 2: Transcribe first chunk
+    await setState('processing', { step: `transcribing chunk 1/${audioChunks.length}`, meetingId });
+    const transcribe1Res = await fetch(`${API_BASE}/transcribe`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ meetingId }),
+    });
+    const transcribe1Data = await transcribe1Res.json();
+    if (!transcribe1Res.ok) throw new Error(transcribe1Data.error || 'Transcription failed for chunk 1');
+
+    let mergedTranscript = transcribe1Data.transcript || '';
+
+    // Step 3: Upload and transcribe remaining chunks
+    for (let i = 1; i < audioChunks.length; i++) {
+      await setState('processing', { step: `uploading chunk ${i + 1}/${audioChunks.length}`, meetingId });
+
+      const chunkBlob = base64ToBlob(audioChunks[i], 'audio/webm');
+      const chunkForm = new FormData();
+      chunkForm.append('audio', chunkBlob, `meeting_chunk_${i + 1}.webm`);
+      chunkForm.append('durationSeconds', '0'); // duration already tracked on main meeting
+
+      const chunkUploadRes = await fetch(`${API_BASE}/upload`, {
+        method: 'POST',
+        body: chunkForm,
+      });
+      const chunkUploadData = await chunkUploadRes.json();
+      if (!chunkUploadRes.ok) throw new Error(chunkUploadData.error || `Upload failed for chunk ${i + 1}`);
+
+      const chunkMeetingId = chunkUploadData.meetingId;
+
+      await setState('processing', { step: `transcribing chunk ${i + 1}/${audioChunks.length}`, meetingId });
+      const chunkTransRes = await fetch(`${API_BASE}/transcribe`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ meetingId: chunkMeetingId }),
+      });
+      const chunkTransData = await chunkTransRes.json();
+      if (!chunkTransRes.ok) throw new Error(chunkTransData.error || `Transcription failed for chunk ${i + 1}`);
+
+      if (chunkTransData.transcript) {
+        mergedTranscript += '\n' + chunkTransData.transcript;
+      }
+    }
+
+    // Step 4: Update the main meeting with the merged transcript
+    await fetch(`${API_BASE}/transcribe/update`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ meetingId, transcript: mergedTranscript }),
+    });
+
+    // Step 5: Summarize the merged transcript
+    await setState('processing', { step: 'summarizing', meetingId });
+    const summarizeRes = await fetch(`${API_BASE}/summarize`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ meetingId }),
+    });
+    const summarizeData = await summarizeRes.json();
+    if (!summarizeRes.ok) throw new Error(summarizeData.error || 'Summarization failed');
+
+    clearBadge();
+    await setState('summary-ready', {
+      meetingId,
+      summary: summarizeData.summary,
+    });
+  } catch (err) {
+    console.error('Chunked pipeline error:', err);
+    clearBadge();
+    await setState('error', { message: err.message });
+  } finally {
+    await closeOffscreenDocument();
+    recordingTabId = null;
+    recordingStartTime = null;
+  }
+}
+
 function base64ToBlob(base64, mimeType) {
   const byteChars = atob(base64);
   const byteArrays = [];
@@ -310,7 +418,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case 'RECORDING_COMPLETE':
       // Clear audio levels
       chrome.storage.local.remove('audioLevels');
-      if (message.audioBase64) {
+      if (message.audioChunks && message.audioChunks.length > 0) {
+        // Multi-chunk recording (>55 min) — upload and transcribe each chunk
+        runChunkedPipeline(message.audioChunks);
+      } else if (message.audioBase64) {
         runPipeline(message.audioBase64);
       } else {
         clearBadge();

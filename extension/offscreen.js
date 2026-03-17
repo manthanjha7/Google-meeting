@@ -25,6 +25,12 @@ let analyserNode = null;
 let silentGain = null;
 let isStarting = false; // Guard against double execution
 
+// ---- Chunk-based recording for long meetings (>55 min) ----
+const CHUNK_DURATION_MS = 55 * 60 * 1000; // 55 minutes per chunk
+let chunkInterval = null;
+let completedChunks = []; // Array of base64 audio strings
+let recordingStream = null; // Persist across chunk boundaries
+
 // ---- Message-based command listener ----
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -86,7 +92,6 @@ async function startRecording(streamId, includeMic = false) {
     // audible to the user because tab capture does NOT mute the tab.
     tabSource.connect(audioContext.destination);
 
-    let recordingStream;
     let analyserSource;
 
     if (includeMic) {
@@ -123,47 +128,19 @@ async function startRecording(streamId, includeMic = false) {
     // Set up audio analyser for visualizer
     startAudioAnalyser(analyserSource);
 
-    recordedChunks = [];
-    mediaRecorder = new MediaRecorder(recordingStream, {
-      mimeType: 'audio/webm;codecs=opus',
-      audioBitsPerSecond: 64000,
-    });
+    // Reset chunk state
+    completedChunks = [];
 
-    mediaRecorder.ondataavailable = (event) => {
-      if (event.data.size > 0) {
-        recordedChunks.push(event.data);
-      }
-    };
+    // Start the first recorder chunk
+    startNewRecorderChunk();
 
-    mediaRecorder.onstop = async () => {
-      stopAudioAnalyser();
+    // Set up auto-chunking: every 55 minutes, finalize current chunk and start a new one
+    chunkInterval = setInterval(() => {
+      console.log(`[Finrep] Auto-chunking: finalizing chunk ${completedChunks.length + 1}, starting new chunk`);
+      rotateChunk();
+    }, CHUNK_DURATION_MS);
 
-      const blob = new Blob(recordedChunks, { type: 'audio/webm' });
-      const totalSize = blob.size;
-      recordedChunks = [];
-
-      console.log(`[Finrep] Recording stopped. Audio size: ${totalSize} bytes`);
-
-      if (totalSize < 1000) {
-        console.warn('[Finrep] Audio blob is very small, recording may be silent');
-      }
-
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const base64 = reader.result.split(',')[1];
-        chrome.runtime.sendMessage({
-          type: 'RECORDING_COMPLETE',
-          audioBase64: base64,
-        });
-      };
-      reader.readAsDataURL(blob);
-
-      cleanupStreams();
-    };
-
-    mediaRecorder.start(5000);
-    console.log(`[Finrep] MediaRecorder started. State: ${mediaRecorder.state}`);
-
+    console.log(`[Finrep] Recording started with auto-chunking every ${CHUNK_DURATION_MS / 60000} minutes`);
     chrome.runtime.sendMessage({ type: 'RECORDING_STARTED' });
   } catch (err) {
     console.error('[Finrep] Recording error:', err);
@@ -174,6 +151,51 @@ async function startRecording(streamId, includeMic = false) {
       error: err.message,
     });
   }
+}
+
+/**
+ * Start a new MediaRecorder instance on the same stream.
+ */
+function startNewRecorderChunk() {
+  recordedChunks = [];
+  mediaRecorder = new MediaRecorder(recordingStream, {
+    mimeType: 'audio/webm;codecs=opus',
+    audioBitsPerSecond: 64000,
+  });
+
+  mediaRecorder.ondataavailable = (event) => {
+    if (event.data.size > 0) {
+      recordedChunks.push(event.data);
+    }
+  };
+
+  // onstop is set dynamically by rotateChunk() or stopRecording()
+  mediaRecorder.start(5000);
+  console.log(`[Finrep] MediaRecorder chunk started. State: ${mediaRecorder.state}`);
+}
+
+/**
+ * Finalize the current chunk and start recording a new one.
+ * Used for auto-chunking long meetings.
+ */
+function rotateChunk() {
+  if (!mediaRecorder || mediaRecorder.state !== 'recording') return;
+
+  // Capture current chunks before stopping
+  const currentChunks = [...recordedChunks];
+
+  mediaRecorder.onstop = async () => {
+    const blob = new Blob(currentChunks, { type: 'audio/webm' });
+    console.log(`[Finrep] Chunk ${completedChunks.length + 1} finalized: ${blob.size} bytes`);
+
+    const base64 = await blobToBase64(blob);
+    completedChunks.push(base64);
+
+    // Start a new recorder on the same stream
+    startNewRecorderChunk();
+  };
+
+  mediaRecorder.stop();
 }
 
 // ---- Audio Analyser ----
@@ -283,19 +305,64 @@ function cleanupStreams() {
     audioContext.close();
     audioContext = null;
   }
+  recordingStream = null;
 }
 
 // ---- Recording Control ----
 
 function stopRecording() {
   console.log('[Finrep] stopRecording called, mediaRecorder state:', mediaRecorder?.state);
+
+  // Clear the auto-chunking timer
+  if (chunkInterval) {
+    clearInterval(chunkInterval);
+    chunkInterval = null;
+  }
+
   if (mediaRecorder && mediaRecorder.state === 'recording') {
+    mediaRecorder.onstop = async () => {
+      stopAudioAnalyser();
+
+      // Finalize the last chunk
+      const blob = new Blob(recordedChunks, { type: 'audio/webm' });
+      recordedChunks = [];
+      const lastChunkBase64 = await blobToBase64(blob);
+
+      // Combine all chunks (completed + final)
+      const allChunks = [...completedChunks, lastChunkBase64];
+      completedChunks = [];
+
+      const totalSize = allChunks.reduce((sum, b64) => sum + b64.length, 0);
+      console.log(`[Finrep] Recording stopped. ${allChunks.length} chunk(s), total base64 size: ${totalSize}`);
+
+      if (allChunks.length === 1) {
+        // Single chunk — send as before for backward compatibility
+        if (blob.size < 1000) {
+          console.warn('[Finrep] Audio blob is very small, recording may be silent');
+        }
+        chrome.runtime.sendMessage({
+          type: 'RECORDING_COMPLETE',
+          audioBase64: allChunks[0],
+        });
+      } else {
+        // Multiple chunks — send as array
+        chrome.runtime.sendMessage({
+          type: 'RECORDING_COMPLETE',
+          audioChunks: allChunks,
+          chunkCount: allChunks.length,
+        });
+      }
+
+      cleanupStreams();
+    };
+
     mediaRecorder.stop();
   } else {
     console.warn('[Finrep] stopRecording: no active MediaRecorder, sending empty completion');
     stopAudioAnalyser();
     cleanupStreams();
     mediaRecorder = null;
+    completedChunks = [];
     chrome.runtime.sendMessage({
       type: 'RECORDING_COMPLETE',
       audioBase64: null,
@@ -306,6 +373,12 @@ function stopRecording() {
 
 function cancelRecording() {
   console.log('[Finrep] cancelRecording called');
+
+  if (chunkInterval) {
+    clearInterval(chunkInterval);
+    chunkInterval = null;
+  }
+
   stopAudioAnalyser();
 
   if (mediaRecorder) {
@@ -318,5 +391,17 @@ function cancelRecording() {
   }
 
   recordedChunks = [];
+  completedChunks = [];
   cleanupStreams();
+}
+
+/**
+ * Convert a Blob to base64 string (without data URL prefix).
+ */
+function blobToBase64(blob) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result.split(',')[1]);
+    reader.readAsDataURL(blob);
+  });
 }

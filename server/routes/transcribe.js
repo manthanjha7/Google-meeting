@@ -39,4 +39,27 @@ router.post('/', async (req, res) => {
   }
 });
 
+// POST /api/transcribe/update — merge/overwrite transcript for a meeting
+// Used by chunked pipeline to combine transcripts from multiple audio chunks
+router.post('/update', async (req, res) => {
+  const { meetingId, transcript } = req.body;
+
+  if (!meetingId || !transcript) {
+    return res.status(400).json({ error: 'meetingId and transcript are required' });
+  }
+
+  const meeting = await getMeeting(meetingId);
+  if (!meeting) {
+    return res.status(404).json({ error: 'Meeting not found' });
+  }
+
+  try {
+    await updateTranscript(meetingId, transcript);
+    res.json({ meetingId, updated: true });
+  } catch (err) {
+    console.error('Transcript update error:', err);
+    res.status(500).json({ error: `Transcript update failed: ${err.message}` });
+  }
+});
+
 module.exports = router;
