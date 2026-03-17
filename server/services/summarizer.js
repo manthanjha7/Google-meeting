@@ -132,8 +132,10 @@ SEGMENT SUMMARIES:
 /**
  * Summarize a meeting transcript using Claude.
  * Automatically chunks long transcripts for reliable processing.
+ * @param {string} transcript
+ * @param {string} extraInstructions - Additional instructions from template or custom prompt
  */
-async function summarize(transcript) {
+async function summarize(transcript, extraInstructions = '') {
   if (!transcript || transcript.trim().length === 0) {
     return {
       title: 'Empty Meeting',
@@ -150,20 +152,52 @@ async function summarize(transcript) {
   const chunks = chunkTranscript(transcript);
 
   if (chunks.length === 1) {
-    // Short transcript — single-pass summarization
-    return await summarizeSingle(chunks[0]);
+    return await summarizeSingle(chunks[0], extraInstructions);
   }
 
-  // Long transcript — chunk-then-merge strategy
   console.log(`[Summarizer] Transcript too long for single pass, using ${chunks.length} chunks with overlap`);
-  return await summarizeChunked(chunks);
+  return await summarizeChunked(chunks, extraInstructions);
+}
+
+/**
+ * Stream a summary using SSE. Only supports single-pass (short transcripts get chunked internally).
+ * @param {string} transcript
+ * @param {string} extraInstructions
+ * @param {function} onChunk - callback(textChunk)
+ */
+async function summarizeStream(transcript, extraInstructions = '', onChunk) {
+  const anthropic = getClient();
+  const prompt = buildPrompt(SUMMARY_PROMPT, extraInstructions) + transcript;
+
+  const stream = await anthropic.messages.stream({
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: 4096,
+    messages: [{ role: 'user', content: prompt }],
+  });
+
+  for await (const event of stream) {
+    if (event.type === 'content_block_delta' && event.delta?.text) {
+      onChunk(event.delta.text);
+    }
+  }
+}
+
+/**
+ * Build prompt with optional extra instructions.
+ */
+function buildPrompt(basePrompt, extraInstructions = '') {
+  if (!extraInstructions) return basePrompt;
+  return basePrompt + `\n\nADDITIONAL INSTRUCTIONS:\n${extraInstructions}\n\nTRANSCRIPT:\n`;
 }
 
 /**
  * Single-pass summarization for shorter transcripts.
  */
-async function summarizeSingle(transcript) {
+async function summarizeSingle(transcript, extraInstructions = '') {
   const anthropic = getClient();
+  const prompt = extraInstructions
+    ? buildPrompt(SUMMARY_PROMPT.replace(/\nTRANSCRIPT:\n$/, ''), extraInstructions)
+    : SUMMARY_PROMPT;
 
   const message = await anthropic.messages.create({
     model: 'claude-sonnet-4-20250514',
@@ -171,7 +205,7 @@ async function summarizeSingle(transcript) {
     messages: [
       {
         role: 'user',
-        content: SUMMARY_PROMPT + transcript,
+        content: prompt + transcript,
       },
     ],
   });
@@ -182,7 +216,7 @@ async function summarizeSingle(transcript) {
 /**
  * Multi-chunk summarization: summarize each chunk, then merge.
  */
-async function summarizeChunked(chunks) {
+async function summarizeChunked(chunks, extraInstructions = '') {
   const anthropic = getClient();
 
   // Step 1: Summarize each chunk
@@ -254,4 +288,4 @@ function parseSummaryResponse(responseText) {
   return summary;
 }
 
-module.exports = { summarize, chunkTranscript };
+module.exports = { summarize, summarizeStream, chunkTranscript };
