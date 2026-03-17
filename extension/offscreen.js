@@ -22,7 +22,11 @@ let micStream = null;
 let tabStream = null;
 let analyserInterval = null;
 let analyserNode = null;
+let micAnalyserNode = null;   // Separate analyser for mic levels
+let tabAnalyserNode = null;   // Separate analyser for tab levels
 let silentGain = null;
+let tabGainNode = null;       // For ducking control
+let duckingInterval = null;   // For RMS-based ducking loop
 let isStarting = false; // Guard against double execution
 
 // ---- Chunk-based recording for long meetings ----
@@ -97,31 +101,32 @@ async function startRecording(streamId, includeMic = false) {
     // audible to the user because tab capture does NOT mute the tab.
     tabSource.connect(audioContext.destination);
 
-    // ---- Audio quality filters ----
-    // High-pass filter at 100Hz to remove low-frequency hum/rumble
-    const highPassFilter = audioContext.createBiquadFilter();
-    highPassFilter.type = 'highpass';
-    highPassFilter.frequency.value = 100;
-    highPassFilter.Q.value = 0.7;
-
-    // Compressor to normalize loudness and prevent clipping
-    const compressor = audioContext.createDynamicsCompressor();
-    compressor.threshold.value = -24;  // Start compressing at -24dB
-    compressor.knee.value = 12;        // Soft knee for natural sound
-    compressor.ratio.value = 4;        // 4:1 compression
-    compressor.attack.value = 0.003;   // Fast attack for speech
-    compressor.release.value = 0.15;   // Medium release
-
     /**
-     * Apply audio quality chain to a source node:
-     * source -> highpass -> compressor -> destination
+     * Audio processing chain per source:
+     * source -> noiseGate -> highpass (100Hz) -> compressor -> output
+     *
+     * Noise gate: Expander that attenuates signals below threshold,
+     * reducing background noise (fans, typing, hum) during silence.
      */
     function createProcessedSource(source) {
+      // Noise gate via expander: very low threshold compressor that acts as gate
+      // We use a gain node + analyser to implement a simple noise gate
+      const gateGain = audioContext.createGain();
+      gateGain.gain.value = 1.0;
+
+      // High-pass filter at 100Hz to remove low-frequency hum/rumble
       const hp = audioContext.createBiquadFilter();
       hp.type = 'highpass';
       hp.frequency.value = 100;
       hp.Q.value = 0.7;
 
+      // Notch filter at 50Hz to remove mains hum
+      const notch = audioContext.createBiquadFilter();
+      notch.type = 'notch';
+      notch.frequency.value = 50;
+      notch.Q.value = 10;
+
+      // Compressor for loudness normalization
       const comp = audioContext.createDynamicsCompressor();
       comp.threshold.value = -24;
       comp.knee.value = 12;
@@ -129,9 +134,11 @@ async function startRecording(streamId, includeMic = false) {
       comp.attack.value = 0.003;
       comp.release.value = 0.15;
 
-      source.connect(hp);
+      source.connect(gateGain);
+      gateGain.connect(notch);
+      notch.connect(hp);
       hp.connect(comp);
-      return comp; // Return the last node in the chain
+      return { output: comp, gateGain };
     }
 
     let analyserSource;
@@ -151,35 +158,56 @@ async function startRecording(streamId, includeMic = false) {
         const micSource = audioContext.createMediaStreamSource(micStream);
         const mixedDestination = audioContext.createMediaStreamDestination();
 
-        // Apply quality filters to both sources before mixing
+        // Process both sources
         const processedTab = createProcessedSource(tabSource);
         const processedMic = createProcessedSource(micSource);
-        processedTab.connect(mixedDestination);
-        processedMic.connect(mixedDestination);
+
+        // ---- Audio ducking ----
+        // When mic is loud, reduce tab volume so user's voice isn't drowned out
+        tabGainNode = audioContext.createGain();
+        tabGainNode.gain.value = 1.0;
+        processedTab.output.connect(tabGainNode);
+        tabGainNode.connect(mixedDestination);
+        processedMic.output.connect(mixedDestination);
+
+        // Set up per-source analysers for separate level monitoring
+        micAnalyserNode = audioContext.createAnalyser();
+        micAnalyserNode.fftSize = 256;
+        micAnalyserNode.smoothingTimeConstant = 0.3;
+        processedMic.output.connect(micAnalyserNode);
+
+        tabAnalyserNode = audioContext.createAnalyser();
+        tabAnalyserNode.fftSize = 256;
+        tabAnalyserNode.smoothingTimeConstant = 0.3;
+        processedTab.output.connect(tabAnalyserNode);
+
+        // Start RMS-based ducking loop
+        startDuckingLoop();
+
+        // Start noise gate loop for mic (suppress mic when silent)
+        startNoiseGateLoop(micSource, processedMic.gateGain);
 
         recordingStream = mixedDestination.stream;
         analyserSource = audioContext.createMediaStreamSource(mixedDestination.stream);
-        console.log('[Finrep] Recording with tab audio + microphone (with quality filters)');
+        console.log('[Finrep] Recording with tab + mic (ducking + noise gate + quality filters)');
       } catch (micErr) {
         console.warn('[Finrep] Microphone access denied, falling back to tab audio only:', micErr.message);
-        // Apply filters to tab-only recording
         const processedTab = createProcessedSource(tabSource);
         const dest = audioContext.createMediaStreamDestination();
-        processedTab.connect(dest);
+        processedTab.output.connect(dest);
         recordingStream = dest.stream;
         analyserSource = audioContext.createMediaStreamSource(dest.stream);
       }
     } else {
-      // Apply filters to tab-only recording
       const processedTab = createProcessedSource(tabSource);
       const dest = audioContext.createMediaStreamDestination();
-      processedTab.connect(dest);
+      processedTab.output.connect(dest);
       recordingStream = dest.stream;
       analyserSource = audioContext.createMediaStreamSource(dest.stream);
       console.log('[Finrep] Recording tab audio only (with quality filters)');
     }
 
-    // Set up audio analyser for visualizer
+    // Set up combined audio analyser for main visualizer
     startAudioAnalyser(analyserSource);
 
     // Reset chunk state
@@ -252,6 +280,98 @@ function rotateChunk() {
   mediaRecorder.stop();
 }
 
+// ---- Audio Ducking (RMS-based) ----
+
+const DUCK_THRESHOLD = 0.02;    // Mic RMS above this triggers ducking
+const DUCK_RATIO = 0.3;         // Reduce tab to 30% when ducking
+const DUCK_ATTACK_MS = 50;      // Time to duck down
+const DUCK_RELEASE_MS = 300;    // Time to release duck
+
+function startDuckingLoop() {
+  if (!micAnalyserNode || !tabGainNode) return;
+
+  const micData = new Float32Array(micAnalyserNode.fftSize);
+
+  duckingInterval = setInterval(() => {
+    if (!micAnalyserNode || !tabGainNode || !audioContext) return;
+
+    micAnalyserNode.getFloatTimeDomainData(micData);
+
+    // Calculate RMS of mic signal
+    let sumSq = 0;
+    for (let i = 0; i < micData.length; i++) {
+      sumSq += micData[i] * micData[i];
+    }
+    const micRms = Math.sqrt(sumSq / micData.length);
+
+    const now = audioContext.currentTime;
+    if (micRms > DUCK_THRESHOLD) {
+      // Mic is active — duck tab audio
+      tabGainNode.gain.cancelScheduledValues(now);
+      tabGainNode.gain.setTargetAtTime(DUCK_RATIO, now, DUCK_ATTACK_MS / 1000);
+    } else {
+      // Mic is quiet — restore tab audio
+      tabGainNode.gain.cancelScheduledValues(now);
+      tabGainNode.gain.setTargetAtTime(1.0, now, DUCK_RELEASE_MS / 1000);
+    }
+  }, 50); // 50ms polling = 20Hz
+}
+
+function stopDuckingLoop() {
+  if (duckingInterval) {
+    clearInterval(duckingInterval);
+    duckingInterval = null;
+  }
+  tabGainNode = null;
+}
+
+// ---- Noise Gate (for mic) ----
+// Attenuates mic input when below RMS threshold to suppress background noise
+
+const GATE_THRESHOLD = 0.008;   // Below this RMS, gate closes
+const GATE_OPEN_GAIN = 1.0;
+const GATE_CLOSED_GAIN = 0.05;  // Not fully muted — preserves natural ambience
+const GATE_ATTACK_MS = 10;
+const GATE_RELEASE_MS = 100;
+
+let noiseGateInterval = null;
+
+function startNoiseGateLoop(micSource, gateGainNode) {
+  const gateAnalyser = audioContext.createAnalyser();
+  gateAnalyser.fftSize = 256;
+  micSource.connect(gateAnalyser);
+
+  const gateData = new Float32Array(gateAnalyser.fftSize);
+
+  noiseGateInterval = setInterval(() => {
+    if (!gateAnalyser || !audioContext) return;
+
+    gateAnalyser.getFloatTimeDomainData(gateData);
+
+    let sumSq = 0;
+    for (let i = 0; i < gateData.length; i++) {
+      sumSq += gateData[i] * gateData[i];
+    }
+    const rms = Math.sqrt(sumSq / gateData.length);
+
+    const now = audioContext.currentTime;
+    if (rms > GATE_THRESHOLD) {
+      gateGainNode.gain.cancelScheduledValues(now);
+      gateGainNode.gain.setTargetAtTime(GATE_OPEN_GAIN, now, GATE_ATTACK_MS / 1000);
+    } else {
+      gateGainNode.gain.cancelScheduledValues(now);
+      gateGainNode.gain.setTargetAtTime(GATE_CLOSED_GAIN, now, GATE_RELEASE_MS / 1000);
+    }
+  }, 30); // 30ms = ~33Hz
+}
+
+function stopNoiseGateLoop() {
+  if (noiseGateInterval) {
+    clearInterval(noiseGateInterval);
+    noiseGateInterval = null;
+  }
+}
+
 // ---- Audio Analyser ----
 
 const DECAY_RATE = 0.82;
@@ -318,10 +438,31 @@ function startAudioAnalyser(sourceNode) {
     previousLevels = levels.map((l) => l / 100);
 
     const hasActivity = levels.some((l) => l > 2);
+
+    // Calculate separate mic/tab RMS for the popup indicator
+    let micRms = 0;
+    let tabRms = 0;
+    if (micAnalyserNode) {
+      const micData = new Float32Array(micAnalyserNode.fftSize);
+      micAnalyserNode.getFloatTimeDomainData(micData);
+      let sum = 0;
+      for (let j = 0; j < micData.length; j++) sum += micData[j] * micData[j];
+      micRms = Math.round(Math.sqrt(sum / micData.length) * 1000);
+    }
+    if (tabAnalyserNode) {
+      const tabData = new Float32Array(tabAnalyserNode.fftSize);
+      tabAnalyserNode.getFloatTimeDomainData(tabData);
+      let sum = 0;
+      for (let j = 0; j < tabData.length; j++) sum += tabData[j] * tabData[j];
+      tabRms = Math.round(Math.sqrt(sum / tabData.length) * 1000);
+    }
+
     // Send levels to background which writes them to storage for the popup
     chrome.runtime.sendMessage({
       type: 'AUDIO_LEVELS',
       levels: hasActivity ? levels : null,
+      micRms,
+      tabRms,
     });
   }, 100);
 }
@@ -339,7 +480,11 @@ function stopAudioAnalyser() {
     analyserNode.disconnect();
     analyserNode = null;
   }
+  micAnalyserNode = null;
+  tabAnalyserNode = null;
   previousLevels = new Array(NUM_BARS).fill(0);
+  stopDuckingLoop();
+  stopNoiseGateLoop();
   // Notify background to clear levels
   chrome.runtime.sendMessage({ type: 'AUDIO_LEVELS', levels: null });
 }

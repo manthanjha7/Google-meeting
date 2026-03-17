@@ -426,7 +426,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     case 'AUDIO_LEVELS':
       // Forward audio levels from offscreen to storage (popup reads from storage)
-      chrome.storage.local.set({ audioLevels: message.levels });
+      chrome.storage.local.set({
+        audioLevels: message.levels,
+        micRms: message.micRms || 0,
+        tabRms: message.tabRms || 0,
+      });
       break;
 
     case 'RECORDING_COMPLETE':

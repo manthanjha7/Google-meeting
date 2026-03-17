@@ -83,6 +83,54 @@ header h1 {
   box-shadow: 0 0 4px rgba(74, 74, 255, 0.4);
 }
 
+/* Source-level indicators (mic + tab) */
+.source-levels {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-bottom: 8px;
+  padding: 0 20px;
+}
+
+.source-level {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+}
+
+.source-label {
+  font-size: 9px;
+  font-weight: 600;
+  color: #666;
+  letter-spacing: 0.5px;
+  width: 24px;
+  text-align: right;
+}
+
+.source-bar-track {
+  flex: 1;
+  height: 4px;
+  background: #2a2a4a;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.source-bar {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.1s ease-out;
+  width: 0%;
+}
+
+.mic-bar {
+  background: linear-gradient(to right, #4aff4a, #ffaa00);
+}
+
+.tab-bar {
+  background: linear-gradient(to right, #4a4aff, #aa44ff);
+}
+
 .error-icon {
   color: #ff6b6b;
   font-size: 36px;

@@ -51,6 +51,16 @@
     <!-- Recording State -->
     <div id="state-recording" class="state hidden">
       <div class="audio-visualizer" id="audio-visualizer"></div>
+      <div class="source-levels" id="source-levels">
+        <div class="source-level">
+          <span class="source-label">MIC</span>
+          <div class="source-bar-track"><div class="source-bar mic-bar" id="mic-level-bar"></div></div>
+        </div>
+        <div class="source-level">
+          <span class="source-label">TAB</span>
+          <div class="source-bar-track"><div class="source-bar tab-bar" id="tab-level-bar"></div></div>
+        </div>
+      </div>
       <p class="status-text">Recording in progress</p>
       <p id="recording-timer" class="timer">00:00:00</p>
       <div class="button-group">

@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { BlobServiceClient } = require('@azure/storage-blob');
+const { stripSilenceFromWav } = require('./vad');
 
 const SARVAM_BASE = 'https://api.sarvam.ai';
 const SARVAM_JOB_INIT = `${SARVAM_BASE}/speech-to-text/job/init`;
@@ -22,11 +23,27 @@ async function transcribe(audioFilePath, { numSpeakers } = {}) {
     throw new Error(`Audio file not found: ${audioFilePath}`);
   }
 
-  const audioBuffer = fs.readFileSync(audioFilePath);
+  let audioBuffer = fs.readFileSync(audioFilePath);
   const fileName = path.basename(audioFilePath);
 
   if (audioBuffer.length < 1000) {
     throw new Error(`Audio file too small (${audioBuffer.length} bytes) — recording may have failed`);
+  }
+
+  // Apply VAD: strip silence from WAV files to reduce API cost and improve quality
+  const ext = path.extname(audioFilePath).toLowerCase();
+  if (ext === '.wav') {
+    try {
+      const vadResult = stripSilenceFromWav(audioBuffer);
+      if (vadResult.stripped) {
+        console.log(`[Sarvam] VAD stripped silence: ${vadResult.stats.reductionPct}% reduction (${vadResult.stats.segments} speech segments)`);
+        audioBuffer = vadResult.buffer;
+      } else if (vadResult.stats) {
+        console.log(`[Sarvam] VAD: minimal silence detected, using original audio`);
+      }
+    } catch (vadErr) {
+      console.warn(`[Sarvam] VAD failed, using original audio:`, vadErr.message);
+    }
   }
 
   const headers = {

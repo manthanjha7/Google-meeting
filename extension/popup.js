@@ -359,6 +359,20 @@ elements.btnReset.addEventListener('click', () => {
   stopTimer();
 });
 
+// ---- Source Level Indicators ----
+
+const micLevelBar = document.getElementById('mic-level-bar');
+const tabLevelBar = document.getElementById('tab-level-bar');
+
+function updateSourceLevels(micRms, tabRms) {
+  // RMS values are scaled *1000 in offscreen, map to 0-100% width
+  // Typical speech RMS*1000 is 5-50, so scale accordingly
+  const micPct = Math.min(100, (micRms / 40) * 100);
+  const tabPct = Math.min(100, (tabRms / 40) * 100);
+  if (micLevelBar) micLevelBar.style.width = `${micPct}%`;
+  if (tabLevelBar) tabLevelBar.style.width = `${tabPct}%`;
+}
+
 // Listen for storage changes to update UI in real-time
 chrome.storage.onChanged.addListener((changes) => {
   if (changes.extensionState || changes.stateData) {
@@ -367,6 +381,12 @@ chrome.storage.onChanged.addListener((changes) => {
   // Update audio visualizer bars when levels change
   if (changes.audioLevels) {
     updateVisualizer(changes.audioLevels.newValue);
+  }
+  // Update separate mic/tab levels
+  if (changes.micRms || changes.tabRms) {
+    const micRms = changes.micRms ? changes.micRms.newValue : 0;
+    const tabRms = changes.tabRms ? changes.tabRms.newValue : 0;
+    updateSourceLevels(micRms, tabRms);
   }
 });
 
