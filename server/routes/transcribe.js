@@ -62,4 +62,44 @@ router.post('/update', async (req, res) => {
   }
 });
 
+// POST /api/transcribe/retranscribe — re-run transcription on existing audio
+router.post('/retranscribe', async (req, res) => {
+  const { meetingId, numSpeakers } = req.body;
+
+  if (!meetingId) {
+    return res.status(400).json({ error: 'meetingId is required' });
+  }
+
+  const meeting = await getMeeting(meetingId);
+  if (!meeting) {
+    return res.status(404).json({ error: 'Meeting not found' });
+  }
+
+  if (!meeting.audio_path) {
+    return res.status(400).json({ error: 'No audio file stored for this meeting' });
+  }
+
+  const fs = require('fs');
+  if (!fs.existsSync(meeting.audio_path)) {
+    return res.status(400).json({ error: 'Audio file no longer exists on disk' });
+  }
+
+  try {
+    const transcript = await transcribe(meeting.audio_path, { numSpeakers });
+
+    if (!transcript || transcript.trim().length === 0) {
+      return res.status(400).json({
+        error: 'Re-transcription returned empty result.',
+      });
+    }
+
+    await updateTranscript(meetingId, transcript);
+
+    res.json({ meetingId, transcript, retranscribed: true });
+  } catch (err) {
+    console.error('Re-transcription error:', err);
+    res.status(500).json({ error: `Re-transcription failed: ${err.message}` });
+  }
+});
+
 module.exports = router;

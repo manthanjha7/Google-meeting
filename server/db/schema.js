@@ -35,12 +35,30 @@ function initSchema() {
       participants TEXT,
       duration_seconds INTEGER,
       slack_posted INTEGER DEFAULT 0,
+      meet_title TEXT,
+      meet_url TEXT,
       created_at TEXT DEFAULT (datetime('now')),
       updated_at TEXT DEFAULT (datetime('now'))
     )
   `);
   db.run(`CREATE INDEX IF NOT EXISTS idx_meetings_call_type ON meetings(call_type)`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_meetings_created_at ON meetings(created_at)`);
+
+  // Add columns for existing databases (safe to run multiple times)
+  try { db.run(`ALTER TABLE meetings ADD COLUMN meet_title TEXT`); } catch (e) { /* already exists */ }
+  try { db.run(`ALTER TABLE meetings ADD COLUMN meet_url TEXT`); } catch (e) { /* already exists */ }
+
+  // FTS5 virtual table for full-text search on transcripts
+  db.run(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS meetings_fts USING fts5(
+      id UNINDEXED,
+      title,
+      transcript,
+      content='meetings',
+      content_rowid='rowid'
+    )
+  `);
+
   saveDb();
 }
 

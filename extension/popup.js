@@ -375,5 +375,18 @@ chrome.storage.local.get('includeMic', (result) => {
   elements.toggleMic.checked = result.includeMic !== undefined ? result.includeMic : true;
 });
 
+// Check for recovery notices
+chrome.storage.local.get('recoveryNotice', (result) => {
+  if (result.recoveryNotice) {
+    const notice = result.recoveryNotice;
+    // Show if less than 10 minutes old
+    if (Date.now() - notice.timestamp < 10 * 60 * 1000) {
+      const msg = notice.message + (notice.meetTitle ? `\n\nMeeting: ${notice.meetTitle}` : '');
+      alert(msg);
+    }
+    chrome.storage.local.remove('recoveryNotice');
+  }
+});
+
 // Initial sync
 syncState();

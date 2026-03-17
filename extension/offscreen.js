@@ -25,8 +25,9 @@ let analyserNode = null;
 let silentGain = null;
 let isStarting = false; // Guard against double execution
 
-// ---- Chunk-based recording for long meetings (>55 min) ----
-const CHUNK_DURATION_MS = 55 * 60 * 1000; // 55 minutes per chunk
+// ---- Chunk-based recording for long meetings ----
+// Default 55 minutes; configurable via START_RECORDING message
+let CHUNK_DURATION_MS = 55 * 60 * 1000;
 let chunkInterval = null;
 let completedChunks = []; // Array of base64 audio strings
 let recordingStream = null; // Persist across chunk boundaries
@@ -42,6 +43,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case 'START_RECORDING':
       if (!isStarting && (!mediaRecorder || mediaRecorder.state === 'inactive')) {
         isStarting = true;
+        // Allow configurable chunk duration (in minutes)
+        if (message.chunkDurationMin) {
+          CHUNK_DURATION_MS = message.chunkDurationMin * 60 * 1000;
+        }
         startRecording(message.streamId, message.includeMic).finally(() => {
           isStarting = false;
         });
@@ -92,6 +97,43 @@ async function startRecording(streamId, includeMic = false) {
     // audible to the user because tab capture does NOT mute the tab.
     tabSource.connect(audioContext.destination);
 
+    // ---- Audio quality filters ----
+    // High-pass filter at 100Hz to remove low-frequency hum/rumble
+    const highPassFilter = audioContext.createBiquadFilter();
+    highPassFilter.type = 'highpass';
+    highPassFilter.frequency.value = 100;
+    highPassFilter.Q.value = 0.7;
+
+    // Compressor to normalize loudness and prevent clipping
+    const compressor = audioContext.createDynamicsCompressor();
+    compressor.threshold.value = -24;  // Start compressing at -24dB
+    compressor.knee.value = 12;        // Soft knee for natural sound
+    compressor.ratio.value = 4;        // 4:1 compression
+    compressor.attack.value = 0.003;   // Fast attack for speech
+    compressor.release.value = 0.15;   // Medium release
+
+    /**
+     * Apply audio quality chain to a source node:
+     * source -> highpass -> compressor -> destination
+     */
+    function createProcessedSource(source) {
+      const hp = audioContext.createBiquadFilter();
+      hp.type = 'highpass';
+      hp.frequency.value = 100;
+      hp.Q.value = 0.7;
+
+      const comp = audioContext.createDynamicsCompressor();
+      comp.threshold.value = -24;
+      comp.knee.value = 12;
+      comp.ratio.value = 4;
+      comp.attack.value = 0.003;
+      comp.release.value = 0.15;
+
+      source.connect(hp);
+      hp.connect(comp);
+      return comp; // Return the last node in the chain
+    }
+
     let analyserSource;
 
     if (includeMic) {
@@ -108,21 +150,33 @@ async function startRecording(streamId, includeMic = false) {
 
         const micSource = audioContext.createMediaStreamSource(micStream);
         const mixedDestination = audioContext.createMediaStreamDestination();
-        tabSource.connect(mixedDestination);
-        micSource.connect(mixedDestination);
+
+        // Apply quality filters to both sources before mixing
+        const processedTab = createProcessedSource(tabSource);
+        const processedMic = createProcessedSource(micSource);
+        processedTab.connect(mixedDestination);
+        processedMic.connect(mixedDestination);
 
         recordingStream = mixedDestination.stream;
         analyserSource = audioContext.createMediaStreamSource(mixedDestination.stream);
-        console.log('[Finrep] Recording with tab audio + microphone');
+        console.log('[Finrep] Recording with tab audio + microphone (with quality filters)');
       } catch (micErr) {
         console.warn('[Finrep] Microphone access denied, falling back to tab audio only:', micErr.message);
-        recordingStream = tabStream;
-        analyserSource = tabSource;
+        // Apply filters to tab-only recording
+        const processedTab = createProcessedSource(tabSource);
+        const dest = audioContext.createMediaStreamDestination();
+        processedTab.connect(dest);
+        recordingStream = dest.stream;
+        analyserSource = audioContext.createMediaStreamSource(dest.stream);
       }
     } else {
-      recordingStream = tabStream;
-      analyserSource = tabSource;
-      console.log('[Finrep] Recording tab audio only');
+      // Apply filters to tab-only recording
+      const processedTab = createProcessedSource(tabSource);
+      const dest = audioContext.createMediaStreamDestination();
+      processedTab.connect(dest);
+      recordingStream = dest.stream;
+      analyserSource = audioContext.createMediaStreamSource(dest.stream);
+      console.log('[Finrep] Recording tab audio only (with quality filters)');
     }
 
     // Set up audio analyser for visualizer

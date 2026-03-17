@@ -16,7 +16,8 @@
 
     if (endCallButton && !meetingActive) {
       meetingActive = true;
-      chrome.runtime.sendMessage({ type: 'MEET_DETECTED', url: window.location.href });
+      const meetTitle = getMeetingTitle();
+      chrome.runtime.sendMessage({ type: 'MEET_DETECTED', url: window.location.href, meetTitle });
     }
 
     if (!endCallButton && meetingActive && !joinButton) {
@@ -55,12 +56,41 @@
     });
   }
 
+  /**
+   * Extract the meeting title from the Google Meet DOM.
+   * Tries multiple selectors as Meet's DOM changes across versions.
+   */
+  function getMeetingTitle() {
+    // Method 1: The meeting topic shown in the top bar
+    const topicEl = document.querySelector('[data-meeting-title]');
+    if (topicEl) return topicEl.getAttribute('data-meeting-title');
+
+    // Method 2: The title element in the meeting info area
+    const infoTitle = document.querySelector('[data-call-title]');
+    if (infoTitle) return infoTitle.textContent.trim();
+
+    // Method 3: From document.title (format: "Meeting Name - Google Meet")
+    const docTitle = document.title;
+    if (docTitle && docTitle !== 'Google Meet' && docTitle.includes(' - Google Meet')) {
+      return docTitle.replace(' - Google Meet', '').trim();
+    }
+    if (docTitle && docTitle !== 'Google Meet' && !docTitle.startsWith('Meet -')) {
+      return docTitle.replace('Meet - ', '').trim();
+    }
+
+    // Method 4: Look for the meeting code/name in the URL
+    const match = window.location.pathname.match(/\/([a-z]{3}-[a-z]{4}-[a-z]{3})$/);
+    if (match) return `Meeting ${match[1]}`;
+
+    return null;
+  }
+
   // Respond to CHECK_MEETING from background (used after reset)
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === 'CHECK_MEETING') {
       const endCallButton = document.querySelector('[data-tooltip="Leave call"]') ||
         document.querySelector('[aria-label="Leave call"]');
-      sendResponse({ active: !!endCallButton });
+      sendResponse({ active: !!endCallButton, meetTitle: getMeetingTitle() });
     }
   });
 

@@ -1,10 +1,10 @@
 const { getDb, saveDb } = require('./schema');
 
-async function createMeeting(id, audioPath, durationSeconds = null) {
+async function createMeeting(id, audioPath, durationSeconds = null, meetTitle = null, meetUrl = null) {
   const db = await getDb();
   db.run(
-    `INSERT INTO meetings (id, audio_path, duration_seconds) VALUES (?, ?, ?)`,
-    [id, audioPath, durationSeconds]
+    `INSERT INTO meetings (id, audio_path, duration_seconds, meet_title, meet_url, title) VALUES (?, ?, ?, ?, ?, ?)`,
+    [id, audioPath, durationSeconds, meetTitle, meetUrl, meetTitle]
   );
   saveDb();
   return getMeeting(id);
@@ -16,6 +16,8 @@ async function updateTranscript(id, transcript) {
     `UPDATE meetings SET transcript = ?, updated_at = datetime('now') WHERE id = ?`,
     [transcript, id]
   );
+  // Update FTS index
+  rebuildFts();
   saveDb();
   return getMeeting(id);
 }
@@ -91,6 +93,43 @@ async function listMeetings(callType = null) {
   return results;
 }
 
+async function searchMeetings(query) {
+  const db = await getDb();
+  const results = [];
+  const stmt = db.prepare(`
+    SELECT m.* FROM meetings m
+    JOIN meetings_fts fts ON m.id = fts.id
+    WHERE meetings_fts MATCH ?
+    ORDER BY m.created_at DESC
+  `);
+  stmt.bind([query]);
+  while (stmt.step()) {
+    results.push(parseMeetingRow(stmt.getAsObject()));
+  }
+  stmt.free();
+  return results;
+}
+
+async function updateMeetTitle(id, meetTitle) {
+  const db = await getDb();
+  db.run(
+    `UPDATE meetings SET meet_title = ?, title = COALESCE(title, ?), updated_at = datetime('now') WHERE id = ?`,
+    [meetTitle, meetTitle, id]
+  );
+  saveDb();
+  return getMeeting(id);
+}
+
+function rebuildFts() {
+  try {
+    const db2 = db;
+    db2.run(`DELETE FROM meetings_fts`);
+    db2.run(`INSERT INTO meetings_fts(id, title, transcript) SELECT id, COALESCE(title,''), COALESCE(transcript,'') FROM meetings`);
+  } catch (e) {
+    console.warn('FTS rebuild warning:', e.message);
+  }
+}
+
 function parseMeetingRow(row) {
   return {
     ...row,
@@ -108,4 +147,7 @@ module.exports = {
   markSlackPosted,
   getMeeting,
   listMeetings,
+  searchMeetings,
+  updateMeetTitle,
+  rebuildFts,
 };

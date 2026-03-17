@@ -7,6 +7,8 @@ let currentState = 'idle';
 let recordingTabId = null;
 let recordingStartTime = null;
 let meetTabId = null;
+let meetTitle = null;
+let meetUrl = null;
 
 // Pending start command — stored here until offscreen sends OFFSCREEN_READY
 let pendingStartCommand = null;
@@ -79,12 +81,17 @@ async function startRecording(tabId, includeMic = false) {
       targetTabId: tabId,
     });
 
+    // Read configurable chunk duration (defaults to 55 minutes)
+    const settings = await chrome.storage.local.get('chunkDurationMin');
+    const chunkDurationMin = settings.chunkDurationMin || 55;
+
     // Store the command — will be sent when offscreen signals READY
     pendingStartCommand = {
       type: 'START_RECORDING',
       target: 'offscreen',
       streamId,
       includeMic,
+      chunkDurationMin,
     };
 
     // Create offscreen document (its script will send OFFSCREEN_READY when loaded)
@@ -134,6 +141,8 @@ async function runPipeline(audioBase64) {
       ? Math.round((Date.now() - recordingStartTime) / 1000)
       : 0;
     formData.append('durationSeconds', String(durationSeconds));
+    if (meetTitle) formData.append('meetTitle', meetTitle);
+    if (meetUrl) formData.append('meetUrl', meetUrl);
 
     const uploadRes = await fetch(`${API_BASE}/upload`, {
       method: 'POST',
@@ -205,6 +214,8 @@ async function runChunkedPipeline(audioChunks) {
     const firstForm = new FormData();
     firstForm.append('audio', firstBlob, 'meeting_chunk_1.webm');
     firstForm.append('durationSeconds', String(durationSeconds));
+    if (meetTitle) firstForm.append('meetTitle', meetTitle);
+    if (meetUrl) firstForm.append('meetUrl', meetUrl);
 
     const uploadRes = await fetch(`${API_BASE}/upload`, {
       method: 'POST',
@@ -360,12 +371,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case 'MEET_DETECTED':
       if (sender.tab) {
         meetTabId = sender.tab.id;
-        chrome.storage.local.set({ meetTabId: sender.tab.id });
+        meetTitle = message.meetTitle || null;
+        meetUrl = message.url || null;
+        chrome.storage.local.set({ meetTabId: sender.tab.id, meetTitle, meetUrl });
         getState().then(({ state }) => {
           if (state === 'idle') {
             setBadge('MEET', '#4a4aff');
             // Show note-taking prompt before going to meet-detected
-            setState('note-prompt', { tabId: sender.tab.id, meetUrl: message.url });
+            setState('note-prompt', { tabId: sender.tab.id, meetUrl: message.url, meetTitle: message.meetTitle });
           }
         });
       }
@@ -498,12 +511,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 });
 
-// ---- Initialization ----
+// ---- Initialization & Recovery ----
 
 async function restoreState() {
-  const result = await chrome.storage.local.get(['extensionState', 'stateData', 'meetTabId']);
+  const result = await chrome.storage.local.get(['extensionState', 'stateData', 'meetTabId', 'meetTitle', 'meetUrl']);
   currentState = result.extensionState || 'idle';
   meetTabId = result.meetTabId || null;
+  meetTitle = result.meetTitle || null;
+  meetUrl = result.meetUrl || null;
 
   if (currentState === 'recording' && result.stateData) {
     recordingTabId = result.stateData.tabId || null;
@@ -511,11 +526,32 @@ async function restoreState() {
   }
 
   if (currentState === 'recording') {
-    setBadge('REC', '#ff4444');
-  } else if (currentState === 'meet-detected') {
-    setBadge('MEET', '#4a4aff');
+    // Recording was in progress when extension restarted — it's lost
+    // Notify user and reset to idle
+    console.warn('[Finrep] Extension restarted while recording was in progress. Recording data lost.');
+    await chrome.storage.local.set({
+      recoveryNotice: {
+        message: 'The extension was restarted while recording was in progress. The recording was lost.',
+        timestamp: Date.now(),
+        meetTitle: meetTitle,
+        meetUrl: meetUrl,
+      },
+    });
+    clearBadge();
+    await redetectMeeting();
   } else if (currentState === 'processing') {
-    setBadge('...', '#4a4aff');
+    // Processing was interrupted — pipeline failed
+    console.warn('[Finrep] Extension restarted during processing. Pipeline was interrupted.');
+    await chrome.storage.local.set({
+      recoveryNotice: {
+        message: 'The extension was restarted during processing. The pipeline was interrupted. If audio was uploaded, you can re-transcribe from the dashboard.',
+        timestamp: Date.now(),
+      },
+    });
+    clearBadge();
+    await redetectMeeting();
+  } else if (currentState === 'meet-detected' || currentState === 'note-prompt') {
+    setBadge('MEET', '#4a4aff');
   }
 }
 

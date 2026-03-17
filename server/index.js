@@ -17,6 +17,14 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
+// Serve dashboard static files
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Dashboard route
+app.get('/dashboard', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'dashboard.html'));
+});
+
 // Routes
 app.use('/api/upload', require('./routes/upload'));
 app.use('/api/transcribe', require('./routes/transcribe'));

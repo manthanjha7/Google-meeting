@@ -20,7 +20,11 @@ const upload = multer({
   storage,
   limits: { fileSize: 500 * 1024 * 1024 }, // 500 MB max
   fileFilter: (req, file, cb) => {
-    const allowed = ['audio/webm', 'audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/ogg'];
+    const allowed = [
+      'audio/webm', 'audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/ogg',
+      'audio/mp4', 'audio/m4a', 'audio/aac', 'audio/flac', 'audio/x-flac',
+      'video/webm', 'video/mp4', 'audio/x-wav',
+    ];
     if (allowed.includes(file.mimetype)) {
       cb(null, true);
     } else {
@@ -39,8 +43,10 @@ router.post('/', upload.single('audio'), async (req, res) => {
   const durationSeconds = req.body.durationSeconds
     ? parseInt(req.body.durationSeconds, 10)
     : null;
+  const meetTitle = req.body.meetTitle || null;
+  const meetUrl = req.body.meetUrl || null;
 
-  const meeting = await createMeeting(meetingId, req.file.path, durationSeconds);
+  const meeting = await createMeeting(meetingId, req.file.path, durationSeconds, meetTitle, meetUrl);
 
   res.json({
     meetingId: meeting.id,
