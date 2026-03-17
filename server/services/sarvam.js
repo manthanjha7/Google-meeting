@@ -119,33 +119,55 @@ async function transcribe(audioFilePath, { numSpeakers } = {}) {
   }
 
   // Parse result — batch API returns JSON with transcript data
+  //
+  // Sarvam Batch STT response format (with diarization):
+  // {
+  //   "transcript": "full plain text...",
+  //   "diarized_transcript": {
+  //     "entries": [
+  //       {
+  //         "speaker_id": "SPEAKER_0",
+  //         "transcript": "text segment",
+  //         "start_time_seconds": 0.5,
+  //         "end_time_seconds": 3.2
+  //       },
+  //       ...
+  //     ]
+  //   }
+  // }
   try {
     const result = JSON.parse(resultText);
 
-    // Log the full response structure for debugging
     console.log('[Sarvam] Response keys:', Object.keys(result));
     console.log('[Sarvam] Full response (first 2000 chars):', JSON.stringify(result).substring(0, 2000));
 
-    // Sarvam batch API may return results in different structures
-    // Check for array of segments (common batch format)
-    const segments = result.diarized_transcript
-      || result.diarized_segments
-      || result.segments
-      || result.utterances
-      || result.results;
+    // Primary: diarized_transcript.entries (Sarvam batch API format)
+    if (result.diarized_transcript?.entries && Array.isArray(result.diarized_transcript.entries)) {
+      const entries = result.diarized_transcript.entries;
+      console.log('[Sarvam] Found diarized entries:', entries.length, 'Sample:', JSON.stringify(entries[0]));
+      return formatDiarizedTranscript(entries);
+    }
 
+    // Fallback: diarized_transcript as direct array
+    if (Array.isArray(result.diarized_transcript) && result.diarized_transcript.length > 0) {
+      console.log('[Sarvam] Found diarized_transcript as array:', result.diarized_transcript.length);
+      return formatDiarizedTranscript(result.diarized_transcript);
+    }
+
+    // Fallback: other possible segment array keys
+    const segments = result.segments || result.utterances || result.results;
     if (Array.isArray(segments) && segments.length > 0) {
-      console.log('[Sarvam] Found diarized segments:', segments.length, 'Sample:', JSON.stringify(segments[0]));
+      console.log('[Sarvam] Found segments via fallback key:', segments.length);
       return formatDiarizedTranscript(segments);
     }
 
-    // Check if result itself is an array of segments
-    if (Array.isArray(result) && result.length > 0 && (result[0].speaker || result[0].text || result[0].transcript)) {
+    // Fallback: result itself is an array of segments
+    if (Array.isArray(result) && result.length > 0 && (result[0].speaker_id || result[0].speaker || result[0].transcript)) {
       console.log('[Sarvam] Result is array of segments:', result.length);
       return formatDiarizedTranscript(result);
     }
 
-    // If timestamps are available, format with time markers
+    // Fallback: timestamps without diarization
     const timestamps = result.timestamps || result.words;
     if (Array.isArray(timestamps) && timestamps.length > 0) {
       return formatTimestampedTranscript(timestamps, result.transcript || result.text || '');
@@ -155,7 +177,6 @@ async function transcribe(audioFilePath, { numSpeakers } = {}) {
     console.log('[Sarvam] Falling back to plain transcript, length:', plainTranscript.length);
     return plainTranscript;
   } catch (parseErr) {
-    // If result is plain text, return as-is
     console.log('[Sarvam] Could not parse as JSON, returning raw text. Error:', parseErr.message);
     return resultText;
   }
@@ -241,22 +262,22 @@ function parseAzureBlobUrl(url) {
 /**
  * Format diarized transcript with speaker labels and timestamps.
  */
-function formatDiarizedTranscript(segments) {
+function formatDiarizedTranscript(entries) {
   const lines = [];
   let lastSpeaker = null;
 
-  for (const seg of segments) {
-    // Handle various field names from Sarvam API
-    const speaker = seg.speaker || seg.speaker_id || seg.speaker_label || 'Unknown';
-    const text = (seg.text || seg.transcript || seg.content || '').trim();
+  for (const entry of entries) {
+    // Sarvam uses: speaker_id, transcript, start_time_seconds, end_time_seconds
+    const speaker = entry.speaker_id || entry.speaker || entry.speaker_label || 'Unknown';
+    const text = (entry.transcript || entry.text || entry.content || '').trim();
     if (!text) continue;
 
-    // Handle various timestamp field names
-    const startTime = seg.start_time ?? seg.start ?? seg.startTime ?? seg.begin ?? null;
+    const startTime = entry.start_time_seconds ?? entry.start_time ?? entry.start ?? null;
     const timestamp = startTime != null
       ? `[${formatTime(startTime)}]`
       : '';
 
+    // Merge consecutive lines from same speaker
     if (speaker === lastSpeaker && lines.length > 0) {
       lines[lines.length - 1] += ' ' + text;
     } else {
