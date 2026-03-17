@@ -16,8 +16,6 @@ async function updateTranscript(id, transcript) {
     `UPDATE meetings SET transcript = ?, updated_at = datetime('now') WHERE id = ?`,
     [transcript, id]
   );
-  // Update FTS index
-  rebuildFts();
   saveDb();
   return getMeeting(id);
 }
@@ -96,13 +94,13 @@ async function listMeetings(callType = null) {
 async function searchMeetings(query) {
   const db = await getDb();
   const results = [];
+  const likePattern = `%${query}%`;
   const stmt = db.prepare(`
-    SELECT m.* FROM meetings m
-    JOIN meetings_fts fts ON m.id = fts.id
-    WHERE meetings_fts MATCH ?
-    ORDER BY m.created_at DESC
+    SELECT * FROM meetings
+    WHERE transcript LIKE ? OR title LIKE ? OR meet_title LIKE ?
+    ORDER BY created_at DESC
   `);
-  stmt.bind([query]);
+  stmt.bind([likePattern, likePattern, likePattern]);
   while (stmt.step()) {
     results.push(parseMeetingRow(stmt.getAsObject()));
   }
@@ -118,16 +116,6 @@ async function updateMeetTitle(id, meetTitle) {
   );
   saveDb();
   return getMeeting(id);
-}
-
-function rebuildFts() {
-  try {
-    const db2 = db;
-    db2.run(`DELETE FROM meetings_fts`);
-    db2.run(`INSERT INTO meetings_fts(id, title, transcript) SELECT id, COALESCE(title,''), COALESCE(transcript,'') FROM meetings`);
-  } catch (e) {
-    console.warn('FTS rebuild warning:', e.message);
-  }
 }
 
 function parseMeetingRow(row) {
@@ -149,5 +137,4 @@ module.exports = {
   listMeetings,
   searchMeetings,
   updateMeetTitle,
-  rebuildFts,
 };

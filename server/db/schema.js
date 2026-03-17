@@ -48,17 +48,6 @@ function initSchema() {
   try { db.run(`ALTER TABLE meetings ADD COLUMN meet_title TEXT`); } catch (e) { /* already exists */ }
   try { db.run(`ALTER TABLE meetings ADD COLUMN meet_url TEXT`); } catch (e) { /* already exists */ }
 
-  // FTS5 virtual table for full-text search on transcripts
-  db.run(`
-    CREATE VIRTUAL TABLE IF NOT EXISTS meetings_fts USING fts5(
-      id UNINDEXED,
-      title,
-      transcript,
-      content='meetings',
-      content_rowid='rowid'
-    )
-  `);
-
   saveDb();
 }
 
