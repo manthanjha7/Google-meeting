@@ -1,7 +1,8 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
-const { listMeetings, getMeeting, searchMeetings, updateMeetTitle } = require('../db/queries');
+const archiver = require('archiver');
+const { listMeetings, getMeeting, searchMeetings, updateMeetTitle, updateSummary, deleteMeeting } = require('../db/queries');
 
 const router = express.Router();
 
@@ -175,6 +176,89 @@ router.patch('/:id/title', async (req, res) => {
     return res.status(404).json({ error: 'Meeting not found' });
   }
   res.json({ meeting });
+});
+
+// PUT /api/meetings/:id/summary — update meeting summary (for inline editing)
+router.put('/:id/summary', async (req, res) => {
+  const { summary } = req.body;
+  if (!summary || typeof summary !== 'object') {
+    return res.status(400).json({ error: 'summary object is required' });
+  }
+  try {
+    const meeting = await updateSummary(req.params.id, summary);
+    if (!meeting) {
+      return res.status(404).json({ error: 'Meeting not found' });
+    }
+    res.json({ meeting });
+  } catch (err) {
+    console.error('Summary update error:', err);
+    res.status(500).json({ error: 'Failed to update summary' });
+  }
+});
+
+// DELETE /api/meetings/:id — delete a meeting
+router.delete('/:id', async (req, res) => {
+  try {
+    const meeting = await deleteMeeting(req.params.id);
+    if (!meeting) {
+      return res.status(404).json({ error: 'Meeting not found' });
+    }
+    // Try to delete the audio file
+    if (meeting.audio_path && fs.existsSync(meeting.audio_path)) {
+      try { fs.unlinkSync(meeting.audio_path); } catch (e) { /* ignore */ }
+    }
+    res.json({ success: true, deletedId: req.params.id });
+  } catch (err) {
+    console.error('Delete error:', err);
+    res.status(500).json({ error: 'Failed to delete meeting' });
+  }
+});
+
+// GET /api/meetings/:id/download — download zip of audio + transcript + summary
+router.get('/:id/download', async (req, res) => {
+  const meeting = await getMeeting(req.params.id);
+  if (!meeting) {
+    return res.status(404).json({ error: 'Meeting not found' });
+  }
+
+  const title = (meeting.title || meeting.meet_title || 'meeting').replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 50);
+
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', `attachment; filename="${title}.zip"`);
+
+  const archive = archiver('zip', { zlib: { level: 6 } });
+  archive.pipe(res);
+
+  // Add transcript
+  if (meeting.transcript) {
+    archive.append(meeting.transcript, { name: `${title}_transcript.txt` });
+  }
+
+  // Add summary
+  if (meeting.summary) {
+    let summaryText = `Meeting: ${meeting.title || meeting.meet_title || 'Untitled'}\n`;
+    summaryText += `Date: ${meeting.created_at || 'Unknown'}\n\n`;
+    summaryText += `Summary:\n${meeting.summary.summary || ''}\n`;
+    if (meeting.summary.decisions?.length) {
+      summaryText += `\nKey Decisions:\n${meeting.summary.decisions.map(d => `  - ${d}`).join('\n')}\n`;
+    }
+    if (meeting.summary.actionItems?.length) {
+      summaryText += `\nAction Items:\n${meeting.summary.actionItems.map(a => `  - ${a}`).join('\n')}\n`;
+    }
+    if (meeting.summary.followUps?.length) {
+      summaryText += `\nFollow-ups:\n${meeting.summary.followUps.map(f => `  - ${f}`).join('\n')}\n`;
+    }
+    archive.append(summaryText, { name: `${title}_summary.txt` });
+    archive.append(JSON.stringify(meeting.summary, null, 2), { name: `${title}_summary.json` });
+  }
+
+  // Add audio file
+  if (meeting.audio_path && fs.existsSync(meeting.audio_path)) {
+    const ext = path.extname(meeting.audio_path);
+    archive.file(meeting.audio_path, { name: `${title}_audio${ext}` });
+  }
+
+  archive.finalize();
 });
 
 module.exports = router;

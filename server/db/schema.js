@@ -48,6 +48,14 @@ function initSchema() {
   try { db.run(`ALTER TABLE meetings ADD COLUMN meet_title TEXT`); } catch (e) { /* already exists */ }
   try { db.run(`ALTER TABLE meetings ADD COLUMN meet_url TEXT`); } catch (e) { /* already exists */ }
 
+  // Settings key-value store
+  db.run(`
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT
+    )
+  `);
+
   saveDb();
 }
 

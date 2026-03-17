@@ -127,6 +127,34 @@ function parseMeetingRow(row) {
   };
 }
 
+async function deleteMeeting(id) {
+  const db = await getDb();
+  const meeting = await getMeeting(id);
+  db.run(`DELETE FROM meetings WHERE id = ?`, [id]);
+  saveDb();
+  return meeting;
+}
+
+async function getSettings() {
+  const db = await getDb();
+  const results = {};
+  try {
+    const stmt = db.prepare('SELECT key, value FROM settings');
+    while (stmt.step()) {
+      const row = stmt.getAsObject();
+      results[row.key] = row.value;
+    }
+    stmt.free();
+  } catch (e) { /* table may not exist yet */ }
+  return results;
+}
+
+async function setSetting(key, value) {
+  const db = await getDb();
+  db.run(`INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)`, [key, value]);
+  saveDb();
+}
+
 module.exports = {
   createMeeting,
   updateTranscript,
@@ -137,4 +165,7 @@ module.exports = {
   listMeetings,
   searchMeetings,
   updateMeetTitle,
+  deleteMeeting,
+  getSettings,
+  setSetting,
 };

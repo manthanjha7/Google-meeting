@@ -12,6 +12,19 @@
       color: #e0e0e0;
       min-height: 100vh;
     }
+
+    /* ---- Transitions (Feature 17) ---- */
+    .fade-in { animation: fadeIn 0.25s ease-out; }
+    .slide-in { animation: slideIn 0.3s ease-out; }
+    .slide-up { animation: slideUp 0.25s ease-out; }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes slideIn { from { opacity: 0; transform: translateX(-12px); } to { opacity: 1; transform: translateX(0); } }
+    @keyframes slideUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes toastIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes toastOut { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(20px); } }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+
     .header {
       background: #1a1a2e;
       border-bottom: 1px solid #2a2a4a;
@@ -34,6 +47,7 @@
       font-size: 13px;
       width: 280px;
       outline: none;
+      transition: border-color 0.2s;
     }
     .search-box:focus { border-color: #4a4aff; }
     .search-box::placeholder { color: #666; }
@@ -52,8 +66,9 @@
       border-radius: 6px;
       font-size: 13px;
       cursor: pointer;
-      transition: background 0.2s;
+      transition: background 0.2s, transform 0.1s;
     }
+    .btn:active { transform: scale(0.97); }
     .btn-primary { background: #4a4aff; color: white; }
     .btn-primary:hover { background: #5c5cff; }
     .btn-secondary { background: #2a2a4a; color: #ccc; border: 1px solid #3a3a5a; }
@@ -61,6 +76,9 @@
     .btn-sm { padding: 5px 10px; font-size: 12px; }
     .btn-danger { background: #8b2020; color: white; }
     .btn-danger:hover { background: #a02828; }
+    .btn-icon { background: none; border: none; color: #888; cursor: pointer; padding: 4px 8px; font-size: 16px; transition: color 0.2s; }
+    .btn-icon:hover { color: #e0e0e0; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
     .main { display: flex; height: calc(100vh - 57px); }
     .sidebar {
@@ -81,7 +99,7 @@
       padding: 14px 18px;
       border-bottom: 1px solid #22224a;
       cursor: pointer;
-      transition: background 0.15s;
+      transition: background 0.15s, border-left 0.15s;
     }
     .meeting-item:hover { background: #22224a; }
     .meeting-item.active { background: #2a2a5a; border-left: 3px solid #4a4aff; }
@@ -131,6 +149,25 @@
       font-size: 22px;
       font-weight: 600;
       color: #e0e0ff;
+      cursor: pointer;
+      border: 1px solid transparent;
+      border-radius: 4px;
+      padding: 2px 6px;
+      margin: -2px -6px;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .detail-title:hover { border-color: #3a3a5a; background: #1a1a2e; }
+    .detail-title-input {
+      font-size: 22px;
+      font-weight: 600;
+      color: #e0e0ff;
+      background: #1a1a2e;
+      border: 1px solid #4a4aff;
+      border-radius: 4px;
+      padding: 2px 6px;
+      margin: -2px -6px;
+      outline: none;
+      width: 100%;
     }
     .detail-meta {
       font-size: 12px;
@@ -139,7 +176,7 @@
       display: flex;
       gap: 16px;
     }
-    .detail-actions { display: flex; gap: 8px; flex-shrink: 0; }
+    .detail-actions { display: flex; gap: 8px; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; }
 
     .tabs {
       display: flex;
@@ -158,8 +195,8 @@
     .tab:hover { color: #ccc; }
     .tab.active { color: #a0a0ff; border-bottom-color: #4a4aff; }
 
-    .tab-content { display: none; }
-    .tab-content.active { display: block; }
+    .tab-content { display: none; opacity: 0; transition: opacity 0.2s; }
+    .tab-content.active { display: block; opacity: 1; }
 
     .transcript-box {
       background: #1a1a2e;
@@ -170,18 +207,23 @@
       line-height: 1.7;
       white-space: pre-wrap;
       word-wrap: break-word;
-      max-height: calc(100vh - 250px);
+      max-height: calc(100vh - 300px);
       overflow-y: auto;
       color: #ccc;
     }
-    .transcript-box .speaker {
-      color: #a0a0ff;
-      font-weight: 500;
+    .transcript-box .speaker { color: #a0a0ff; font-weight: 500; }
+    .transcript-box .timestamp { color: #666; font-size: 11px; }
+
+    .transcript-pagination {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      padding: 12px 0;
+      font-size: 13px;
+      color: #888;
     }
-    .transcript-box .timestamp {
-      color: #666;
-      font-size: 11px;
-    }
+    .transcript-pagination button { min-width: 80px; }
 
     .summary-card {
       background: #1a1a2e;
@@ -189,6 +231,7 @@
       border-radius: 8px;
       padding: 20px;
       margin-bottom: 16px;
+      transition: border-color 0.2s;
     }
     .summary-card h3 {
       font-size: 12px;
@@ -196,32 +239,101 @@
       color: #888;
       margin-bottom: 8px;
       letter-spacing: 0.5px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
     }
     .summary-card p, .summary-card li {
       font-size: 13px;
       line-height: 1.6;
       color: #ccc;
     }
-    .summary-card ul {
-      list-style: none;
-      padding: 0;
-    }
-    .summary-card li::before {
-      content: "\2022 ";
-      color: #4a4aff;
-    }
+    .summary-card ul { list-style: none; padding: 0; }
+    .summary-card li::before { content: "\2022 "; color: #4a4aff; }
 
-    .audio-player {
+    /* Editable summary */
+    .summary-editable {
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: 4px;
+      padding: 4px;
+      color: #ccc;
+      font-size: 13px;
+      line-height: 1.6;
       width: 100%;
-      margin: 16px 0;
+      min-height: 60px;
+      resize: vertical;
+      font-family: inherit;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .summary-editable:hover { border-color: #3a3a5a; }
+    .summary-editable:focus { border-color: #4a4aff; background: #12122a; outline: none; }
+
+    .summary-list-editable {
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: 4px;
+      padding: 4px;
+      color: #ccc;
+      font-size: 13px;
+      line-height: 1.8;
+      width: 100%;
+      min-height: 40px;
+      resize: vertical;
+      font-family: inherit;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .summary-list-editable:hover { border-color: #3a3a5a; }
+    .summary-list-editable:focus { border-color: #4a4aff; background: #12122a; outline: none; }
+
+    .audio-player { width: 100%; margin: 16px 0; border-radius: 8px; }
+    audio { width: 100%; height: 40px; }
+
+    /* Summarize controls */
+    .summarize-controls {
+      background: #1a1a2e;
+      border: 1px solid #2a2a4a;
       border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
     }
-    audio {
+    .summarize-controls label { font-size: 12px; color: #888; display: block; margin-bottom: 4px; }
+    .summarize-controls select, .summarize-controls textarea {
       width: 100%;
-      height: 40px;
+      padding: 8px 12px;
+      background: #2a2a4a;
+      border: 1px solid #3a3a5a;
+      border-radius: 6px;
+      color: #e0e0e0;
+      font-size: 13px;
+      font-family: inherit;
+      margin-bottom: 10px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .summarize-controls select:focus, .summarize-controls textarea:focus { border-color: #4a4aff; }
+    .summarize-controls textarea { resize: vertical; min-height: 60px; }
+    .summarize-row { display: flex; gap: 10px; align-items: flex-end; }
+    .summarize-row > div { flex: 1; }
+
+    /* Streaming indicator */
+    .streaming-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: #4a4aff;
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+    .streaming-dot {
+      width: 8px;
+      height: 8px;
+      background: #4a4aff;
+      border-radius: 50%;
+      animation: pulse 1s ease-in-out infinite;
     }
 
-    /* Import modal */
+    /* Modal */
     .modal-overlay {
       display: none;
       position: fixed;
@@ -230,16 +342,23 @@
       z-index: 200;
       align-items: center;
       justify-content: center;
+      opacity: 0;
+      transition: opacity 0.2s;
     }
-    .modal-overlay.active { display: flex; }
+    .modal-overlay.active { display: flex; opacity: 1; }
     .modal {
       background: #1a1a2e;
       border: 1px solid #3a3a5a;
       border-radius: 12px;
       padding: 28px;
-      width: 440px;
+      width: 500px;
       max-width: 90vw;
+      max-height: 80vh;
+      overflow-y: auto;
+      transform: scale(0.95);
+      transition: transform 0.2s;
     }
+    .modal-overlay.active .modal { transform: scale(1); }
     .modal h2 { font-size: 18px; color: #e0e0ff; margin-bottom: 16px; }
     .modal label { font-size: 13px; color: #aaa; display: block; margin-bottom: 6px; }
     .modal input[type="file"] {
@@ -251,7 +370,7 @@
       color: #ccc;
       margin-bottom: 14px;
     }
-    .modal input[type="text"], .modal select {
+    .modal input[type="text"], .modal select, .modal textarea {
       width: 100%;
       padding: 8px 12px;
       background: #2a2a4a;
@@ -260,8 +379,17 @@
       color: #e0e0e0;
       font-size: 13px;
       margin-bottom: 14px;
+      font-family: inherit;
     }
+    .modal textarea { min-height: 80px; resize: vertical; }
     .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 8px; }
+
+    /* Settings sections */
+    .settings-section { margin-bottom: 20px; }
+    .settings-section h3 { font-size: 14px; color: #a0a0ff; margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid #2a2a4a; }
+    .settings-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; }
+    .settings-row label { font-size: 13px; color: #ccc; flex: 1; }
+    .settings-row input, .settings-row select { width: 200px; }
 
     .stats-bar {
       padding: 10px 18px;
@@ -281,6 +409,45 @@
       padding: 40px;
     }
 
+    /* Toast notifications (Feature 10) */
+    .toast-container {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      z-index: 1000;
+      display: flex;
+      flex-direction: column-reverse;
+      gap: 8px;
+    }
+    .toast {
+      padding: 12px 18px;
+      border-radius: 8px;
+      font-size: 13px;
+      color: white;
+      min-width: 280px;
+      max-width: 420px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+      animation: toastIn 0.3s ease-out;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .toast.toast-exit { animation: toastOut 0.3s ease-in forwards; }
+    .toast-success { background: #1a6b3a; border: 1px solid #2a8b4a; }
+    .toast-error { background: #7a1a1a; border: 1px solid #9a2a2a; }
+    .toast-info { background: #1a3a6b; border: 1px solid #2a4a8b; }
+    .toast-close { background: none; border: none; color: rgba(255,255,255,0.7); cursor: pointer; font-size: 16px; margin-left: auto; }
+    .toast-close:hover { color: white; }
+
+    /* Copy feedback */
+    .copy-feedback {
+      font-size: 11px;
+      color: #4a4aff;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+    .copy-feedback.show { opacity: 1; }
+
     /* Scrollbar */
     ::-webkit-scrollbar { width: 6px; }
     ::-webkit-scrollbar-track { background: #0f0f1a; }
@@ -299,6 +466,7 @@
         <option value="gtm">GTM</option>
         <option value="product">Product</option>
       </select>
+      <button class="btn btn-secondary" id="btn-settings" title="Settings">Settings</button>
       <button class="btn btn-primary" id="btn-import" title="Import audio file">Import Audio</button>
     </div>
   </div>
@@ -335,11 +503,116 @@
     </div>
   </div>
 
+  <!-- Settings Modal (Feature 9) -->
+  <div class="modal-overlay" id="settings-modal">
+    <div class="modal" style="width:560px;">
+      <h2>Settings</h2>
+      <div class="settings-section">
+        <h3>Summarization</h3>
+        <div class="settings-row">
+          <label>Default Template</label>
+          <select id="setting-default-template">
+            <option value="default">Default</option>
+            <option value="standup">Standup</option>
+            <option value="customer">Customer Call</option>
+            <option value="product">Product Review</option>
+          </select>
+        </div>
+        <div class="settings-row">
+          <label>Default Custom Prompt</label>
+        </div>
+        <textarea id="setting-custom-prompt" placeholder="Optional custom instructions for all summaries..." style="width:100%;padding:8px 12px;background:#2a2a4a;border:1px solid #3a3a5a;border-radius:6px;color:#e0e0e0;font-size:13px;min-height:60px;font-family:inherit;resize:vertical;"></textarea>
+      </div>
+      <div class="settings-section">
+        <h3>Display</h3>
+        <div class="settings-row">
+          <label>Transcript Lines Per Page</label>
+          <select id="setting-lines-per-page">
+            <option value="50">50</option>
+            <option value="100" selected>100</option>
+            <option value="200">200</option>
+            <option value="500">500</option>
+            <option value="0">All (no pagination)</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="closeModal('settings-modal')">Cancel</button>
+        <button class="btn btn-primary" id="btn-settings-save">Save Settings</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast container (Feature 10) -->
+  <div class="toast-container" id="toast-container"></div>
+
   <script>
     const API = '/api';
     let meetings = [];
     let selectedId = null;
     let searchTimeout = null;
+    let currentMeeting = null;
+    let transcriptPage = 0;
+    let settings = { defaultTemplate: 'default', customPrompt: '', linesPerPage: 100 };
+
+    // ---- Toast Notifications (Feature 10) ----
+    function toast(message, type = 'info', duration = 3500) {
+      const container = document.getElementById('toast-container');
+      const el = document.createElement('div');
+      el.className = `toast toast-${type}`;
+      el.innerHTML = `<span>${escapeHtml(message)}</span><button class="toast-close" onclick="this.parentElement.remove()">&times;</button>`;
+      container.appendChild(el);
+      setTimeout(() => {
+        el.classList.add('toast-exit');
+        setTimeout(() => el.remove(), 300);
+      }, duration);
+    }
+
+    // ---- Settings ----
+    async function loadSettings() {
+      try {
+        const res = await fetch(`${API}/settings`);
+        const data = await res.json();
+        if (data.settings) {
+          settings.defaultTemplate = data.settings.defaultTemplate || 'default';
+          settings.customPrompt = data.settings.customPrompt || '';
+          settings.linesPerPage = parseInt(data.settings.linesPerPage) || 100;
+        }
+      } catch (e) { /* use defaults */ }
+    }
+
+    async function saveSettings() {
+      settings.defaultTemplate = document.getElementById('setting-default-template').value;
+      settings.customPrompt = document.getElementById('setting-custom-prompt').value;
+      settings.linesPerPage = parseInt(document.getElementById('setting-lines-per-page').value) || 100;
+
+      try {
+        await fetch(`${API}/settings`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ settings: {
+            defaultTemplate: settings.defaultTemplate,
+            customPrompt: settings.customPrompt,
+            linesPerPage: String(settings.linesPerPage),
+          }}),
+        });
+        closeModal('settings-modal');
+        toast('Settings saved', 'success');
+      } catch (err) {
+        toast('Failed to save settings: ' + err.message, 'error');
+      }
+    }
+
+    function openSettings() {
+      document.getElementById('setting-default-template').value = settings.defaultTemplate;
+      document.getElementById('setting-custom-prompt').value = settings.customPrompt;
+      document.getElementById('setting-lines-per-page').value = String(settings.linesPerPage);
+      openModal('settings-modal');
+    }
+
+    // ---- Modal helpers ----
+    function openModal(id) { document.getElementById(id).classList.add('active'); }
+    function closeModal(id) { document.getElementById(id).classList.remove('active'); }
 
     // ---- Load meetings ----
     async function loadMeetings(callType = '', searchQuery = '') {
@@ -356,6 +629,7 @@
         renderMeetingList();
       } catch (err) {
         console.error('Failed to load meetings:', err);
+        toast('Failed to load meetings', 'error');
       }
     }
 
@@ -382,7 +656,7 @@
           : '';
 
         return `
-          <div class="meeting-item ${m.id === selectedId ? 'active' : ''}" data-id="${m.id}">
+          <div class="meeting-item slide-in ${m.id === selectedId ? 'active' : ''}" data-id="${m.id}">
             <div class="title">${escapeHtml(title)}</div>
             <div class="meta">
               <span>${date}</span>
@@ -399,18 +673,25 @@
       });
     }
 
+    // ---- Select & render meeting detail ----
     async function selectMeeting(id) {
       selectedId = id;
       renderMeetingList();
 
       const res = await fetch(`${API}/meetings/${id}`);
       const data = await res.json();
-      const m = data.meeting;
+      currentMeeting = data.meeting;
+      const m = currentMeeting;
 
       document.getElementById('empty-state').style.display = 'none';
       const detail = document.getElementById('meeting-detail');
       detail.style.display = 'block';
 
+      transcriptPage = 0;
+      renderDetail(m, detail);
+    }
+
+    function renderDetail(m, detail) {
       const title = m.title || m.meet_title || 'Untitled Meeting';
       const date = m.created_at ? new Date(m.created_at + 'Z').toLocaleDateString('en-IN', {
         weekday: 'short', day: 'numeric', month: 'short', year: 'numeric',
@@ -421,32 +702,19 @@
         : '';
 
       let transcriptHtml = '';
+      let paginationHtml = '';
       if (m.transcript) {
-        transcriptHtml = formatTranscript(m.transcript);
+        const result = formatTranscriptPaginated(m.transcript, transcriptPage);
+        transcriptHtml = result.html;
+        paginationHtml = result.pagination;
       }
 
-      let summaryHtml = '';
-      if (m.summary) {
-        const s = m.summary;
-        summaryHtml += `<div class="summary-card"><h3>Summary</h3><p>${escapeHtml(s.summary || '')}</p></div>`;
-        if (s.decisions?.length) {
-          summaryHtml += `<div class="summary-card"><h3>Key Decisions</h3><ul>${s.decisions.map(d => `<li>${escapeHtml(d)}</li>`).join('')}</ul></div>`;
-        }
-        if (s.actionItems?.length) {
-          summaryHtml += `<div class="summary-card"><h3>Action Items</h3><ul>${s.actionItems.map(a => `<li>${escapeHtml(a)}</li>`).join('')}</ul></div>`;
-        }
-        if (s.followUps?.length) {
-          summaryHtml += `<div class="summary-card"><h3>Follow-ups</h3><ul>${s.followUps.map(f => `<li>${escapeHtml(f)}</li>`).join('')}</ul></div>`;
-        }
-        if (s.participants?.length) {
-          summaryHtml += `<div class="summary-card"><h3>Participants</h3><p>${s.participants.map(p => escapeHtml(p)).join(', ')}</p></div>`;
-        }
-      }
+      const summaryHtml = renderSummaryEditable(m.summary);
 
       detail.innerHTML = `
-        <div class="detail-header">
-          <div>
-            <div class="detail-title">${escapeHtml(title)}</div>
+        <div class="detail-header fade-in">
+          <div style="flex:1;min-width:0;">
+            <div class="detail-title" id="detail-title" onclick="startEditTitle()">${escapeHtml(title)}</div>
             <div class="detail-meta">
               <span>${date}</span>
               ${duration ? `<span>${duration}</span>` : ''}
@@ -455,14 +723,18 @@
             </div>
           </div>
           <div class="detail-actions">
+            <button class="btn btn-secondary btn-sm" onclick="copyTranscript()" title="Copy transcript">Copy Transcript</button>
+            <button class="btn btn-secondary btn-sm" onclick="copySummary()" title="Copy summary">Copy Summary</button>
+            <button class="btn btn-secondary btn-sm" onclick="downloadAll('${m.id}')" title="Download all files">Download All</button>
             <button class="btn btn-secondary btn-sm" onclick="exportMeeting('${m.id}', 'txt')">Export TXT</button>
             <button class="btn btn-secondary btn-sm" onclick="exportMeeting('${m.id}', 'json')">Export JSON</button>
             <button class="btn btn-secondary btn-sm" onclick="retranscribe('${m.id}')">Re-transcribe</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteMeeting('${m.id}')">Delete</button>
           </div>
         </div>
 
         ${m.audio_path ? `
-          <div class="audio-player">
+          <div class="audio-player fade-in">
             <audio controls preload="metadata" src="${API}/meetings/${m.id}/audio"></audio>
           </div>
         ` : ''}
@@ -474,15 +746,52 @@
 
         <div class="tab-content active" data-tab="transcript">
           ${m.transcript
-            ? `<div class="transcript-box">${transcriptHtml}</div>`
+            ? `<div class="transcript-box slide-up">${transcriptHtml}</div>${paginationHtml}`
             : '<div class="no-transcript">No transcript available</div>'
           }
         </div>
 
         <div class="tab-content" data-tab="summary">
-          ${summaryHtml || '<div class="no-transcript">No summary available (summarization is not enabled)</div>'}
+          <!-- Summarize controls (Features 3, 8, 13) -->
+          <div class="summarize-controls slide-up">
+            <div class="summarize-row">
+              <div>
+                <label>Template</label>
+                <select id="summary-template">
+                  <option value="default">Default</option>
+                  <option value="standup">Standup</option>
+                  <option value="customer">Customer Call</option>
+                  <option value="product">Product Review</option>
+                </select>
+              </div>
+              <div style="flex:0 0 auto;padding-bottom:10px;">
+                <button class="btn btn-primary btn-sm" id="btn-summarize" onclick="runSummarize('${m.id}')">
+                  ${m.summary ? 'Re-summarize' : 'Summarize'}
+                </button>
+                <button class="btn btn-secondary btn-sm" id="btn-summarize-stream" onclick="runSummarizeStream('${m.id}')">
+                  Stream
+                </button>
+              </div>
+            </div>
+            <label>Custom Prompt (optional)</label>
+            <textarea id="summary-custom-prompt" placeholder="Add specific instructions for this summary...">${escapeHtml(settings.customPrompt)}</textarea>
+          </div>
+
+          <div id="summary-content">
+            ${summaryHtml || '<div class="no-transcript">No summary available — use the controls above to generate one</div>'}
+          </div>
+          <div id="streaming-output" style="display:none;">
+            <div class="summary-card">
+              <h3><span class="streaming-indicator"><span class="streaming-dot"></span> Generating summary...</span></h3>
+              <pre id="streaming-text" style="white-space:pre-wrap;color:#ccc;font-size:13px;line-height:1.6;font-family:inherit;"></pre>
+            </div>
+          </div>
         </div>
       `;
+
+      // Set template default
+      const templateSelect = document.getElementById('summary-template');
+      if (templateSelect) templateSelect.value = settings.defaultTemplate;
 
       // Tab switching
       detail.querySelectorAll('.tab').forEach(tab => {
@@ -495,19 +804,186 @@
       });
     }
 
-    function formatTranscript(text) {
-      return text.split('\n').map(line => {
-        // Highlight speaker labels and timestamps
+    // ---- Editable Title (Feature 2) ----
+    function startEditTitle() {
+      const el = document.getElementById('detail-title');
+      const currentTitle = currentMeeting.title || currentMeeting.meet_title || '';
+      el.outerHTML = `<input class="detail-title-input" id="detail-title-input" value="${escapeHtml(currentTitle)}" onblur="saveTitle()" onkeydown="if(event.key==='Enter')this.blur();if(event.key==='Escape'){this.dataset.cancel='1';this.blur()}" />`;
+      const input = document.getElementById('detail-title-input');
+      input.focus();
+      input.select();
+    }
+
+    async function saveTitle() {
+      const input = document.getElementById('detail-title-input');
+      if (!input) return;
+      if (input.dataset.cancel === '1') {
+        selectMeeting(selectedId);
+        return;
+      }
+      const newTitle = input.value.trim();
+      if (!newTitle) {
+        selectMeeting(selectedId);
+        return;
+      }
+      try {
+        await fetch(`${API}/meetings/${selectedId}/title`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title: newTitle }),
+        });
+        toast('Title updated', 'success');
+        currentMeeting.title = newTitle;
+        currentMeeting.meet_title = newTitle;
+        loadMeetings(document.getElementById('filter-type').value);
+        selectMeeting(selectedId);
+      } catch (err) {
+        toast('Failed to update title: ' + err.message, 'error');
+      }
+    }
+
+    // ---- Editable Summary (Feature 1) ----
+    function renderSummaryEditable(s) {
+      if (!s) return '';
+      let html = '';
+      html += `<div class="summary-card slide-up">
+        <h3>Summary <button class="btn-icon" onclick="saveSummaryEdits()" title="Save edits">Save</button></h3>
+        <textarea class="summary-editable" data-field="summary">${escapeHtml(s.summary || '')}</textarea>
+      </div>`;
+
+      const listSections = [
+        { key: 'decisions', label: 'Key Decisions' },
+        { key: 'actionItems', label: 'Action Items' },
+        { key: 'followUps', label: 'Follow-ups' },
+        { key: 'nextSteps', label: 'Next Steps' },
+        { key: 'deadlines', label: 'Deadlines' },
+      ];
+
+      for (const sec of listSections) {
+        if (s[sec.key]?.length) {
+          html += `<div class="summary-card slide-up">
+            <h3>${sec.label}</h3>
+            <textarea class="summary-list-editable" data-field="${sec.key}" rows="${Math.min(s[sec.key].length + 1, 8)}">${s[sec.key].map(i => escapeHtml(i)).join('\n')}</textarea>
+          </div>`;
+        }
+      }
+
+      if (s.participants?.length) {
+        html += `<div class="summary-card slide-up">
+          <h3>Participants</h3>
+          <textarea class="summary-list-editable" data-field="participants" rows="2">${s.participants.map(p => escapeHtml(p)).join('\n')}</textarea>
+        </div>`;
+      }
+
+      return html;
+    }
+
+    async function saveSummaryEdits() {
+      if (!currentMeeting?.summary) return;
+
+      const summaryText = document.querySelector('.summary-editable[data-field="summary"]');
+      const updated = { ...currentMeeting.summary };
+      if (summaryText) updated.summary = summaryText.value;
+
+      document.querySelectorAll('.summary-list-editable').forEach(ta => {
+        const field = ta.dataset.field;
+        updated[field] = ta.value.split('\n').map(l => l.trim()).filter(l => l);
+      });
+
+      try {
+        const res = await fetch(`${API}/meetings/${selectedId}/summary`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ summary: updated }),
+        });
+        if (!res.ok) throw new Error('Save failed');
+        currentMeeting.summary = updated;
+        toast('Summary saved', 'success');
+      } catch (err) {
+        toast('Failed to save summary: ' + err.message, 'error');
+      }
+    }
+
+    // ---- Transcript Pagination (Feature 6) ----
+    function formatTranscriptPaginated(text, page) {
+      const lines = text.split('\n');
+      const lpp = settings.linesPerPage;
+      let displayLines, pagination = '';
+
+      if (lpp === 0 || lpp >= lines.length) {
+        displayLines = lines;
+      } else {
+        const totalPages = Math.ceil(lines.length / lpp);
+        const start = page * lpp;
+        const end = Math.min(start + lpp, lines.length);
+        displayLines = lines.slice(start, end);
+        pagination = `
+          <div class="transcript-pagination">
+            <button class="btn btn-secondary btn-sm" onclick="changePage(-1)" ${page === 0 ? 'disabled' : ''}>Previous</button>
+            <span>Page ${page + 1} of ${totalPages} (${lines.length} lines)</span>
+            <button class="btn btn-secondary btn-sm" onclick="changePage(1)" ${page >= totalPages - 1 ? 'disabled' : ''}>Next</button>
+          </div>
+        `;
+      }
+
+      const html = displayLines.map(line => {
         return escapeHtml(line)
           .replace(/^(\[[\d:]+\])/g, '<span class="timestamp">$1</span>')
           .replace(/(SPEAKER_\d+):/g, '<span class="speaker">$1:</span>');
       }).join('\n');
+
+      return { html, pagination };
     }
 
-    function escapeHtml(text) {
-      const div = document.createElement('div');
-      div.textContent = text;
-      return div.innerHTML;
+    function changePage(delta) {
+      if (!currentMeeting?.transcript) return;
+      const lines = currentMeeting.transcript.split('\n');
+      const lpp = settings.linesPerPage;
+      if (lpp === 0) return;
+      const totalPages = Math.ceil(lines.length / lpp);
+      transcriptPage = Math.max(0, Math.min(transcriptPage + delta, totalPages - 1));
+      renderDetail(currentMeeting, document.getElementById('meeting-detail'));
+    }
+
+    // ---- Copy to Clipboard (Feature 5) ----
+    async function copyTranscript() {
+      if (!currentMeeting?.transcript) {
+        toast('No transcript to copy', 'error');
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(currentMeeting.transcript);
+        toast('Transcript copied to clipboard', 'success');
+      } catch (e) {
+        toast('Copy failed', 'error');
+      }
+    }
+
+    async function copySummary() {
+      if (!currentMeeting?.summary) {
+        toast('No summary to copy', 'error');
+        return;
+      }
+      const s = currentMeeting.summary;
+      let text = `Summary: ${s.summary || ''}\n`;
+      if (s.decisions?.length) text += `\nKey Decisions:\n${s.decisions.map(d => `  - ${d}`).join('\n')}\n`;
+      if (s.actionItems?.length) text += `\nAction Items:\n${s.actionItems.map(a => `  - ${a}`).join('\n')}\n`;
+      if (s.followUps?.length) text += `\nFollow-ups:\n${s.followUps.map(f => `  - ${f}`).join('\n')}\n`;
+      if (s.nextSteps?.length) text += `\nNext Steps:\n${s.nextSteps.map(n => `  - ${n}`).join('\n')}\n`;
+      if (s.deadlines?.length) text += `\nDeadlines:\n${s.deadlines.map(d => `  - ${d}`).join('\n')}\n`;
+
+      try {
+        await navigator.clipboard.writeText(text);
+        toast('Summary copied to clipboard', 'success');
+      } catch (e) {
+        toast('Copy failed', 'error');
+      }
+    }
+
+    // ---- Download All (Feature 11) ----
+    function downloadAll(id) {
+      window.open(`${API}/meetings/${id}/download`, '_blank');
+      toast('Downloading meeting files...', 'info');
     }
 
     // ---- Export ----
@@ -515,15 +991,103 @@
       window.open(`${API}/meetings/${id}/export?format=${format}`, '_blank');
     }
 
+    // ---- Summarize (Features 3, 8, 13) ----
+    async function runSummarize(meetingId) {
+      const template = document.getElementById('summary-template')?.value || 'default';
+      const customPrompt = document.getElementById('summary-custom-prompt')?.value || '';
+
+      const btn = document.getElementById('btn-summarize');
+      btn.disabled = true;
+      btn.textContent = 'Summarizing...';
+
+      try {
+        const res = await fetch(`${API}/summarize`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ meetingId, template, customPrompt }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+
+        currentMeeting.summary = data.summary;
+        document.getElementById('summary-content').innerHTML = renderSummaryEditable(data.summary);
+        toast('Summary generated!', 'success');
+      } catch (err) {
+        toast('Summarization failed: ' + err.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = currentMeeting.summary ? 'Re-summarize' : 'Summarize';
+      }
+    }
+
+    // ---- Streaming Summarize (Feature 8) ----
+    async function runSummarizeStream(meetingId) {
+      const template = document.getElementById('summary-template')?.value || 'default';
+      const customPrompt = document.getElementById('summary-custom-prompt')?.value || '';
+
+      const btn = document.getElementById('btn-summarize-stream');
+      btn.disabled = true;
+      btn.textContent = 'Streaming...';
+
+      document.getElementById('summary-content').style.display = 'none';
+      const streamOutput = document.getElementById('streaming-output');
+      const streamText = document.getElementById('streaming-text');
+      streamOutput.style.display = 'block';
+      streamText.textContent = '';
+
+      try {
+        const params = new URLSearchParams({ meetingId, template, customPrompt });
+        const evtSource = new EventSource(`${API}/summarize/stream?${params}`);
+
+        evtSource.onmessage = (event) => {
+          const data = JSON.parse(event.data);
+          if (data.type === 'chunk') {
+            streamText.textContent += data.text;
+            streamText.scrollTop = streamText.scrollHeight;
+          } else if (data.type === 'done') {
+            evtSource.close();
+            currentMeeting.summary = data.summary;
+            streamOutput.style.display = 'none';
+            document.getElementById('summary-content').style.display = 'block';
+            document.getElementById('summary-content').innerHTML = renderSummaryEditable(data.summary);
+            toast('Summary generated (streamed)!', 'success');
+            btn.disabled = false;
+            btn.textContent = 'Stream';
+          } else if (data.type === 'error') {
+            evtSource.close();
+            toast('Streaming error: ' + data.error, 'error');
+            streamOutput.style.display = 'none';
+            document.getElementById('summary-content').style.display = 'block';
+            btn.disabled = false;
+            btn.textContent = 'Stream';
+          }
+        };
+
+        evtSource.onerror = () => {
+          evtSource.close();
+          toast('Stream connection lost', 'error');
+          streamOutput.style.display = 'none';
+          document.getElementById('summary-content').style.display = 'block';
+          btn.disabled = false;
+          btn.textContent = 'Stream';
+        };
+      } catch (err) {
+        toast('Streaming failed: ' + err.message, 'error');
+        streamOutput.style.display = 'none';
+        document.getElementById('summary-content').style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = 'Stream';
+      }
+    }
+
     // ---- Re-transcribe ----
     async function retranscribe(id) {
-      if (!confirm('Re-run transcription on this meeting? This will overwrite the existing transcript.')) return;
-
       const numSpeakers = prompt('Number of speakers (leave blank for auto-detect):', '');
       const body = { meetingId: id };
       if (numSpeakers) body.numSpeakers = parseInt(numSpeakers, 10);
 
       try {
+        toast('Re-transcribing... this may take a few minutes', 'info', 10000);
         const res = await fetch(`${API}/transcribe/retranscribe`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -531,20 +1095,43 @@
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error);
-        alert('Re-transcription complete!');
+        toast('Re-transcription complete!', 'success');
         selectMeeting(id);
       } catch (err) {
-        alert('Re-transcription failed: ' + err.message);
+        toast('Re-transcription failed: ' + err.message, 'error');
       }
     }
 
+    // ---- Delete Meeting (Feature 16) ----
+    async function deleteMeeting(id) {
+      if (!confirm('Are you sure you want to delete this meeting? This cannot be undone.')) return;
+
+      try {
+        const res = await fetch(`${API}/meetings/${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+
+        toast('Meeting deleted', 'success');
+        selectedId = null;
+        currentMeeting = null;
+        document.getElementById('meeting-detail').style.display = 'none';
+        document.getElementById('empty-state').style.display = 'flex';
+        loadMeetings(document.getElementById('filter-type').value);
+      } catch (err) {
+        toast('Failed to delete: ' + err.message, 'error');
+      }
+    }
+
+    // ---- Utility ----
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
     // ---- Import ----
-    document.getElementById('btn-import').addEventListener('click', () => {
-      document.getElementById('import-modal').classList.add('active');
-    });
-    document.getElementById('btn-import-cancel').addEventListener('click', () => {
-      document.getElementById('import-modal').classList.remove('active');
-    });
+    document.getElementById('btn-import').addEventListener('click', () => openModal('import-modal'));
+    document.getElementById('btn-import-cancel').addEventListener('click', () => closeModal('import-modal'));
     document.getElementById('btn-import-submit').addEventListener('click', async () => {
       const fileInput = document.getElementById('import-file');
       const titleInput = document.getElementById('import-title');
@@ -552,7 +1139,7 @@
       const btn = document.getElementById('btn-import-submit');
 
       if (!fileInput.files.length) {
-        alert('Please select an audio file');
+        toast('Please select an audio file', 'error');
         return;
       }
 
@@ -560,7 +1147,6 @@
       btn.textContent = 'Uploading...';
 
       try {
-        // Step 1: Upload
         const formData = new FormData();
         formData.append('audio', fileInput.files[0]);
         if (titleInput.value) formData.append('meetTitle', titleInput.value);
@@ -570,9 +1156,9 @@
         if (!uploadRes.ok) throw new Error(uploadData.error);
 
         const meetingId = uploadData.meetingId;
-
-        // Step 2: Transcribe
         btn.textContent = 'Transcribing...';
+        toast('Upload complete, transcribing...', 'info');
+
         const transcribeBody = { meetingId };
         if (speakersInput.value) transcribeBody.numSpeakers = parseInt(speakersInput.value, 10);
 
@@ -584,15 +1170,16 @@
         const transData = await transRes.json();
         if (!transRes.ok) throw new Error(transData.error);
 
-        document.getElementById('import-modal').classList.remove('active');
+        closeModal('import-modal');
         fileInput.value = '';
         titleInput.value = '';
         speakersInput.value = '';
 
+        toast('Import complete!', 'success');
         await loadMeetings();
         selectMeeting(meetingId);
       } catch (err) {
-        alert('Import failed: ' + err.message);
+        toast('Import failed: ' + err.message, 'error');
       } finally {
         btn.disabled = false;
         btn.textContent = 'Upload & Transcribe';
@@ -620,8 +1207,29 @@
       }
     });
 
+    // ---- Settings button ----
+    document.getElementById('btn-settings').addEventListener('click', openSettings);
+    document.getElementById('btn-settings-save').addEventListener('click', saveSettings);
+
+    // ---- Close modals on overlay click ----
+    document.querySelectorAll('.modal-overlay').forEach(overlay => {
+      overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) overlay.classList.remove('active');
+      });
+    });
+
+    // ---- Keyboard shortcut: Escape closes modals ----
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        document.querySelectorAll('.modal-overlay.active').forEach(m => m.classList.remove('active'));
+      }
+    });
+
     // ---- Init ----
-    loadMeetings();
+    (async () => {
+      await loadSettings();
+      loadMeetings();
+    })();
   </script>
 </body>
 </html>
