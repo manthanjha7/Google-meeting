@@ -508,6 +508,41 @@
     <div class="modal" style="width:560px;">
       <h2>Settings</h2>
       <div class="settings-section">
+        <h3>LLM Provider</h3>
+        <div class="settings-row">
+          <label>Provider</label>
+          <select id="setting-llm-provider" onchange="onProviderChange()">
+            <option value="azure">Azure OpenAI (default)</option>
+            <option value="groq">Groq (fast, cheap)</option>
+            <option value="ollama">Ollama (free, local)</option>
+          </select>
+        </div>
+        <div id="groq-settings" style="display:none">
+          <div class="settings-row">
+            <label>Groq API Key</label>
+            <input type="password" id="setting-groq-api-key" placeholder="gsk_..." style="flex:1;padding:6px 10px;background:#2a2a4a;border:1px solid #3a3a5a;border-radius:6px;color:#e0e0e0;font-size:13px;">
+          </div>
+          <div class="settings-row">
+            <label>Groq Model</label>
+            <select id="setting-groq-model">
+              <option value="llama-3.3-70b-versatile">Llama 3.3 70B (recommended)</option>
+              <option value="llama-3.1-8b-instant">Llama 3.1 8B (fast)</option>
+              <option value="mixtral-8x7b-32768">Mixtral 8x7B</option>
+            </select>
+          </div>
+        </div>
+        <div id="ollama-settings" style="display:none">
+          <div class="settings-row">
+            <label>Ollama URL</label>
+            <input type="text" id="setting-ollama-url" placeholder="http://localhost:11434" style="flex:1;padding:6px 10px;background:#2a2a4a;border:1px solid #3a3a5a;border-radius:6px;color:#e0e0e0;font-size:13px;">
+          </div>
+          <div class="settings-row">
+            <label>Ollama Model</label>
+            <input type="text" id="setting-ollama-model" placeholder="llama3.2" style="flex:1;padding:6px 10px;background:#2a2a4a;border:1px solid #3a3a5a;border-radius:6px;color:#e0e0e0;font-size:13px;">
+          </div>
+        </div>
+      </div>
+      <div class="settings-section">
         <h3>Summarization</h3>
         <div class="settings-row">
           <label>Default Template</label>
@@ -553,7 +588,7 @@
     let searchTimeout = null;
     let currentMeeting = null;
     let transcriptPage = 0;
-    let settings = { defaultTemplate: 'default', customPrompt: '', linesPerPage: 100 };
+    let settings = { defaultTemplate: 'default', customPrompt: '', linesPerPage: 100, llm_provider: 'azure', groq_api_key: '', groq_model: 'llama-3.3-70b-versatile', ollama_base_url: '', ollama_model: '' };
 
     // ---- Toast Notifications (Feature 10) ----
     function toast(message, type = 'info', duration = 3500) {
@@ -569,6 +604,12 @@
     }
 
     // ---- Settings ----
+    function onProviderChange() {
+      const provider = document.getElementById('setting-llm-provider').value;
+      document.getElementById('groq-settings').style.display = provider === 'groq' ? 'block' : 'none';
+      document.getElementById('ollama-settings').style.display = provider === 'ollama' ? 'block' : 'none';
+    }
+
     async function loadSettings() {
       try {
         const res = await fetch(`${API}/settings`);
@@ -577,6 +618,11 @@
           settings.defaultTemplate = data.settings.defaultTemplate || 'default';
           settings.customPrompt = data.settings.customPrompt || '';
           settings.linesPerPage = parseInt(data.settings.linesPerPage) || 100;
+          settings.llm_provider = data.settings.llm_provider || 'azure';
+          settings.groq_api_key = data.settings.groq_api_key || '';
+          settings.groq_model = data.settings.groq_model || 'llama-3.3-70b-versatile';
+          settings.ollama_base_url = data.settings.ollama_base_url || '';
+          settings.ollama_model = data.settings.ollama_model || '';
         }
       } catch (e) { /* use defaults */ }
     }
@@ -585,6 +631,11 @@
       settings.defaultTemplate = document.getElementById('setting-default-template').value;
       settings.customPrompt = document.getElementById('setting-custom-prompt').value;
       settings.linesPerPage = parseInt(document.getElementById('setting-lines-per-page').value) || 100;
+      settings.llm_provider = document.getElementById('setting-llm-provider').value;
+      settings.groq_api_key = document.getElementById('setting-groq-api-key').value;
+      settings.groq_model = document.getElementById('setting-groq-model').value;
+      settings.ollama_base_url = document.getElementById('setting-ollama-url').value;
+      settings.ollama_model = document.getElementById('setting-ollama-model').value;
 
       try {
         await fetch(`${API}/settings`, {
@@ -594,6 +645,11 @@
             defaultTemplate: settings.defaultTemplate,
             customPrompt: settings.customPrompt,
             linesPerPage: String(settings.linesPerPage),
+            llm_provider: settings.llm_provider,
+            groq_api_key: settings.groq_api_key,
+            groq_model: settings.groq_model,
+            ollama_base_url: settings.ollama_base_url,
+            ollama_model: settings.ollama_model,
           }}),
         });
         closeModal('settings-modal');
@@ -607,6 +663,12 @@
       document.getElementById('setting-default-template').value = settings.defaultTemplate;
       document.getElementById('setting-custom-prompt').value = settings.customPrompt;
       document.getElementById('setting-lines-per-page').value = String(settings.linesPerPage);
+      document.getElementById('setting-llm-provider').value = settings.llm_provider || 'azure';
+      document.getElementById('setting-groq-api-key').value = settings.groq_api_key || '';
+      document.getElementById('setting-groq-model').value = settings.groq_model || 'llama-3.3-70b-versatile';
+      document.getElementById('setting-ollama-url').value = settings.ollama_base_url || '';
+      document.getElementById('setting-ollama-model').value = settings.ollama_model || '';
+      onProviderChange();
       openModal('settings-modal');
     }
 

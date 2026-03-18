@@ -40,7 +40,8 @@ router.post('/', async (req, res) => {
       extraInstructions = TEMPLATES[template];
     }
 
-    const summary = await summarize(meeting.transcript, extraInstructions);
+    const settings = await getSettings();
+    const summary = await summarize(meeting.transcript, extraInstructions, settings);
     await updateSummary(meetingId, summary);
 
     res.json({ meetingId, summary });
@@ -84,11 +85,12 @@ router.get('/stream', async (req, res) => {
       extraInstructions = TEMPLATES[template];
     }
 
+    const settings = await getSettings();
     let fullText = '';
     await summarizeStream(meeting.transcript, extraInstructions, (chunk) => {
       fullText += chunk;
       res.write(`data: ${JSON.stringify({ type: 'chunk', text: chunk })}\n\n`);
-    });
+    }, settings);
 
     // Parse the final result and save
     try {

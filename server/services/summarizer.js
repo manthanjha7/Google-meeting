@@ -1,26 +1,43 @@
-const { AzureOpenAI } = require('openai');
+const { AzureOpenAI, OpenAI } = require('openai');
 
-// ---- Client ----
+// ---- Multi-Provider Client Factory ----
+//
+// Supported providers:
+//   azure  — Azure OpenAI (default, uses AZURE_OPENAI_* env vars or settings)
+//   groq   — Groq cloud (fast, cheap; needs groq_api_key in settings)
+//   ollama — Local Ollama server (free; needs ollama_base_url in settings)
 
-let client;
+function buildClient(settings = {}) {
+  const provider = settings.llm_provider || 'azure';
 
-function getClient() {
-  if (!client) {
-    const endpoint = process.env.AZURE_OPENAI_ENDPOINT;
-    const apiKey = process.env.AZURE_OPENAI_API_KEY;
-    const apiVersion = process.env.AZURE_OPENAI_API_VERSION || '2024-08-01-preview';
-
-    if (!endpoint || !apiKey) {
-      throw new Error('AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_API_KEY must be set');
-    }
-
-    client = new AzureOpenAI({ endpoint, apiKey, apiVersion });
+  if (provider === 'groq') {
+    const apiKey = settings.groq_api_key;
+    if (!apiKey) throw new Error('groq_api_key not configured in settings');
+    return {
+      client: new OpenAI({ baseURL: 'https://api.groq.com/openai/v1', apiKey }),
+      model: settings.groq_model || 'llama-3.3-70b-versatile',
+    };
   }
-  return client;
-}
 
-function getDeployment() {
-  return process.env.AZURE_OPENAI_DEPLOYMENT || 'gpt-4o';
+  if (provider === 'ollama') {
+    const baseURL = (settings.ollama_base_url || 'http://localhost:11434') + '/v1';
+    return {
+      client: new OpenAI({ baseURL, apiKey: 'ollama' }),
+      model: settings.ollama_model || 'llama3.2',
+    };
+  }
+
+  // Default: Azure OpenAI
+  const endpoint = process.env.AZURE_OPENAI_ENDPOINT;
+  const apiKey = process.env.AZURE_OPENAI_API_KEY;
+  const apiVersion = process.env.AZURE_OPENAI_API_VERSION || '2024-08-01-preview';
+  if (!endpoint || !apiKey) {
+    throw new Error('AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_API_KEY must be set');
+  }
+  return {
+    client: new AzureOpenAI({ endpoint, apiKey, apiVersion }),
+    model: process.env.AZURE_OPENAI_DEPLOYMENT || 'gpt-4o',
+  };
 }
 
 // ---- Transcript Chunking ----
@@ -159,7 +176,7 @@ TRANSCRIPT:
 
 // ---- Public API ----
 
-async function summarize(transcript, extraInstructions = '') {
+async function summarize(transcript, extraInstructions = '', settings = {}) {
   if (!transcript || transcript.trim().length === 0) {
     return {
       title: 'Empty Meeting',
@@ -176,19 +193,19 @@ async function summarize(transcript, extraInstructions = '') {
   const chunks = chunkTranscript(transcript);
 
   if (chunks.length === 1) {
-    return await summarizeSingle(chunks[0], extraInstructions);
+    return await summarizeSingle(chunks[0], extraInstructions, settings);
   }
 
   console.log(`[Summarizer] Long transcript, using ${chunks.length} chunks with overlap`);
-  return await summarizeChunked(chunks, extraInstructions);
+  return await summarizeChunked(chunks, extraInstructions, settings);
 }
 
-async function summarizeStream(transcript, extraInstructions = '', onChunk) {
-  const az = getClient();
+async function summarizeStream(transcript, extraInstructions = '', onChunk, settings = {}) {
+  const { client, model } = buildClient(settings);
   const prompt = buildPrompt(SUMMARY_PROMPT, extraInstructions) + transcript;
 
-  const stream = await az.chat.completions.create({
-    model: getDeployment(),
+  const stream = await client.chat.completions.create({
+    model,
     max_tokens: 4096,
     messages: [{ role: 'user', content: prompt }],
     stream: true,
@@ -200,11 +217,11 @@ async function summarizeStream(transcript, extraInstructions = '', onChunk) {
   }
 }
 
-async function detectSpeakerNames(transcript) {
+async function detectSpeakerNames(transcript, settings = {}) {
   try {
-    const az = getClient();
-    const response = await az.chat.completions.create({
-      model: getDeployment(),
+    const { client, model } = buildClient(settings);
+    const response = await client.chat.completions.create({
+      model,
       max_tokens: 256,
       messages: [{ role: 'user', content: SPEAKER_DETECTION_PROMPT + transcript }],
     });
@@ -226,14 +243,14 @@ function buildPrompt(basePrompt, extraInstructions = '') {
   return basePrompt + `\n\nADDITIONAL INSTRUCTIONS:\n${extraInstructions}\n\nTRANSCRIPT:\n`;
 }
 
-async function summarizeSingle(transcript, extraInstructions = '') {
-  const az = getClient();
+async function summarizeSingle(transcript, extraInstructions = '', settings = {}) {
+  const { client, model } = buildClient(settings);
   const prompt = extraInstructions
     ? buildPrompt(SUMMARY_PROMPT.replace(/\nTRANSCRIPT:\n$/, ''), extraInstructions)
     : SUMMARY_PROMPT;
 
-  const response = await az.chat.completions.create({
-    model: getDeployment(),
+  const response = await client.chat.completions.create({
+    model,
     max_tokens: 4096,
     messages: [{ role: 'user', content: prompt + transcript }],
   });
@@ -241,8 +258,8 @@ async function summarizeSingle(transcript, extraInstructions = '') {
   return parseSummaryResponse(response.choices[0].message.content);
 }
 
-async function summarizeChunked(chunks, extraInstructions = '') {
-  const az = getClient();
+async function summarizeChunked(chunks, extraInstructions = '', settings = {}) {
+  const { client, model } = buildClient(settings);
   const chunkSummaries = [];
 
   for (let i = 0; i < chunks.length; i++) {
@@ -252,8 +269,8 @@ async function summarizeChunked(chunks, extraInstructions = '') {
       .replace('CHUNK_NUM', String(i + 1))
       .replace('TOTAL_CHUNKS', String(chunks.length));
 
-    const response = await az.chat.completions.create({
-      model: getDeployment(),
+    const response = await client.chat.completions.create({
+      model,
       max_tokens: 2048,
       messages: [{ role: 'user', content: prompt + chunks[i] }],
     });
@@ -267,8 +284,8 @@ async function summarizeChunked(chunks, extraInstructions = '') {
     .map((s, i) => `--- Segment ${i + 1} ---\n${s}`)
     .join('\n\n');
 
-  const mergeResponse = await az.chat.completions.create({
-    model: getDeployment(),
+  const mergeResponse = await client.chat.completions.create({
+    model,
     max_tokens: 4096,
     messages: [{ role: 'user', content: MERGE_PROMPT + mergeInput }],
   });
