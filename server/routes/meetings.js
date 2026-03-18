@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const archiver = require('archiver');
 const PDFDocument = require('pdfkit');
-const { listMeetings, getMeeting, searchMeetings, updateMeetTitle, updateSummary, deleteMeeting, updateSpeakerNames } = require('../db/queries');
+const { listMeetings, getMeeting, searchMeetings, updateMeetTitle, updateSummary, deleteMeeting, updateSpeakerNames, getSegments } = require('../db/queries');
 const { detectSpeakerNames } = require('../services/summarizer');
 const { getSettings } = require('../db/queries');
 
@@ -376,6 +376,18 @@ router.get('/:id/download', async (req, res) => {
   }
 
   archive.finalize();
+});
+
+// GET /api/meetings/:id/segments — returns transcript segments with confidence scores
+router.get('/:id/segments', async (req, res) => {
+  const meeting = await getMeeting(req.params.id);
+  if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
+  try {
+    const segments = await getSegments(req.params.id);
+    res.json({ meetingId: req.params.id, segments });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load segments: ' + err.message });
+  }
 });
 
 // GET /api/meetings/:id/speaker-suggestions

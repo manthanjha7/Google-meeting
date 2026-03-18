@@ -971,10 +971,15 @@
         </div>
 
         <div class="tab-content active" data-tab="transcript">
-          ${m.transcript
-            ? `<div class="transcript-box slide-up">${transcriptHtml}</div>${paginationHtml}`
-            : '<div class="no-transcript">No transcript available</div>'
-          }
+          ${m.transcript ? `
+            <div style="display:flex;justify-content:flex-end;margin-bottom:6px;">
+              <label style="font-size:11px;color:#888;cursor:pointer;display:flex;align-items:center;gap:6px;">
+                <input type="checkbox" id="toggle-confidence" onchange="toggleConfidenceView('${m.id}', this.checked)">
+                Show confidence highlights
+              </label>
+            </div>
+            <div class="transcript-box slide-up" id="transcript-box-main">${transcriptHtml}</div>${paginationHtml}
+          ` : '<div class="no-transcript">No transcript available</div>'}
         </div>
 
         <div class="tab-content" data-tab="summary">
@@ -1523,6 +1528,65 @@
         loadMeetings(e.target.value);
       }
     });
+
+    // ---- Confidence View ----
+
+    let confidenceSegmentsCache = {};
+
+    async function toggleConfidenceView(meetingId, enabled) {
+      const box = document.getElementById('transcript-box-main');
+      if (!box) return;
+
+      if (!enabled) {
+        // Restore plain transcript
+        if (currentMeeting?.transcript) {
+          const result = formatTranscriptPaginated(currentMeeting.transcript, transcriptPage);
+          box.innerHTML = result.html;
+        }
+        return;
+      }
+
+      // Fetch segments if not cached
+      if (!confidenceSegmentsCache[meetingId]) {
+        try {
+          const res = await fetch(`${API}/meetings/${meetingId}/segments`);
+          const data = await res.json();
+          confidenceSegmentsCache[meetingId] = data.segments || [];
+        } catch (e) {
+          return;
+        }
+      }
+
+      const segments = confidenceSegmentsCache[meetingId];
+      if (segments.length === 0) {
+        toast('No segment data — transcribe again to get confidence scores', 'info');
+        document.getElementById('toggle-confidence').checked = false;
+        return;
+      }
+
+      // Render segments with confidence color coding
+      const html = segments.map((seg) => {
+        const conf = seg.confidence != null ? parseFloat(seg.confidence) : 1.0;
+        const timestamp = seg.start_time != null
+          ? `<span class="timestamp">[${String(Math.floor(seg.start_time / 60)).padStart(2,'0')}:${String(Math.floor(seg.start_time % 60)).padStart(2,'0')}]</span> `
+          : '';
+        const speakerSpan = seg.speaker
+          ? `<span class="speaker">${escapeHtml(seg.speaker)}:</span> `
+          : '';
+        let style = '';
+        let badge = '';
+        if (conf < 0.60) {
+          style = 'background:rgba(255,80,80,0.12);border-left:3px solid #ff5050;padding-left:6px;';
+          badge = `<span style="font-size:9px;color:#ff8080;margin-left:4px;" title="Low confidence">${Math.round(conf * 100)}%</span>`;
+        } else if (conf < 0.75) {
+          style = 'background:rgba(255,180,50,0.10);border-left:3px solid #ffb432;padding-left:6px;';
+          badge = `<span style="font-size:9px;color:#ffb432;margin-left:4px;" title="Moderate confidence">${Math.round(conf * 100)}%</span>`;
+        }
+        return `<div style="margin-bottom:4px;${style}">${timestamp}${speakerSpan}${escapeHtml(seg.text)}${badge}</div>`;
+      }).join('');
+
+      box.innerHTML = html || '<span style="color:#666">No segments available</span>';
+    }
 
     // ---- Knowledge Base ----
 

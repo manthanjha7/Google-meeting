@@ -167,6 +167,35 @@ async function updateSpeakerNames(id, speakerNames) {
   return getMeeting(id);
 }
 
+async function saveSegments(meetingId, segments) {
+  const db = await getDb();
+  // Clear existing segments for this meeting first
+  db.run(`DELETE FROM transcript_segments WHERE meeting_id = ?`, [meetingId]);
+  for (const seg of segments) {
+    db.run(
+      `INSERT INTO transcript_segments (meeting_id, speaker, text, start_time, end_time, confidence)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [meetingId, seg.speaker || null, seg.text, seg.startTime ?? null, seg.endTime ?? null, seg.confidence ?? null]
+    );
+  }
+  saveDb();
+}
+
+async function getSegments(meetingId) {
+  const db = await getDb();
+  const stmt = db.prepare(
+    `SELECT id, speaker, text, start_time, end_time, confidence FROM transcript_segments
+     WHERE meeting_id = ? ORDER BY COALESCE(start_time, id)`
+  );
+  stmt.bind([meetingId]);
+  const results = [];
+  while (stmt.step()) {
+    results.push(stmt.getAsObject());
+  }
+  stmt.free();
+  return results;
+}
+
 module.exports = {
   createMeeting,
   updateTranscript,
@@ -181,4 +210,6 @@ module.exports = {
   getSettings,
   setSetting,
   updateSpeakerNames,
+  saveSegments,
+  getSegments,
 };

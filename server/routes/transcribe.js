@@ -1,5 +1,5 @@
 const express = require('express');
-const { getMeeting, updateTranscript } = require('../db/queries');
+const { getMeeting, updateTranscript, saveSegments } = require('../db/queries');
 const { transcribe } = require('../services/sarvam');
 
 const router = express.Router();
@@ -22,7 +22,9 @@ router.post('/', async (req, res) => {
   }
 
   try {
-    const transcript = await transcribe(meeting.audio_path, { numSpeakers });
+    const result = await transcribe(meeting.audio_path, { numSpeakers });
+    const transcript = typeof result === 'string' ? result : result.transcript;
+    const segments = typeof result === 'string' ? [] : (result.segments || []);
 
     if (!transcript || transcript.trim().length === 0) {
       return res.status(400).json({
@@ -31,8 +33,11 @@ router.post('/', async (req, res) => {
     }
 
     await updateTranscript(meetingId, transcript);
+    if (segments.length > 0) {
+      await saveSegments(meetingId, segments);
+    }
 
-    res.json({ meetingId, transcript });
+    res.json({ meetingId, transcript, segmentCount: segments.length });
   } catch (err) {
     console.error('Transcription error:', err);
     res.status(500).json({ error: `Transcription failed: ${err.message}` });
@@ -85,7 +90,9 @@ router.post('/retranscribe', async (req, res) => {
   }
 
   try {
-    const transcript = await transcribe(meeting.audio_path, { numSpeakers });
+    const result = await transcribe(meeting.audio_path, { numSpeakers });
+    const transcript = typeof result === 'string' ? result : result.transcript;
+    const segments = typeof result === 'string' ? [] : (result.segments || []);
 
     if (!transcript || transcript.trim().length === 0) {
       return res.status(400).json({
@@ -94,8 +101,11 @@ router.post('/retranscribe', async (req, res) => {
     }
 
     await updateTranscript(meetingId, transcript);
+    if (segments.length > 0) {
+      await saveSegments(meetingId, segments);
+    }
 
-    res.json({ meetingId, transcript, retranscribed: true });
+    res.json({ meetingId, transcript, retranscribed: true, segmentCount: segments.length });
   } catch (err) {
     console.error('Re-transcription error:', err);
     res.status(500).json({ error: `Re-transcription failed: ${err.message}` });

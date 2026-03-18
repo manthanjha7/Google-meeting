@@ -147,7 +147,8 @@ async function transcribe(audioFilePath, { numSpeakers } = {}) {
   //         "speaker_id": "SPEAKER_0",
   //         "transcript": "text segment",
   //         "start_time_seconds": 0.5,
-  //         "end_time_seconds": 3.2
+  //         "end_time_seconds": 3.2,
+  //         "confidence": 0.92       // optional
   //       },
   //       ...
   //     ]
@@ -193,10 +194,10 @@ async function transcribe(audioFilePath, { numSpeakers } = {}) {
 
     const plainTranscript = result.transcript || result.text || '';
     console.log('[Sarvam] Falling back to plain transcript, length:', plainTranscript.length);
-    return plainTranscript;
+    return { transcript: plainTranscript, segments: [] };
   } catch (parseErr) {
     console.log('[Sarvam] Could not parse as JSON, returning raw text. Error:', parseErr.message);
-    return resultText;
+    return { transcript: resultText, segments: [] };
   }
 }
 
@@ -278,40 +279,73 @@ function parseAzureBlobUrl(url) {
 }
 
 /**
+ * Compute a heuristic confidence score for a transcript segment.
+ * Used when Sarvam doesn't provide an explicit confidence value.
+ * Score range: 0.0 – 1.0
+ */
+function heuristicConfidence(text) {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  if (words.length < 2) return 0.50; // very short = uncertain
+  if (words.length < 4) return 0.65; // short = somewhat uncertain
+
+  // High ratio of numbers / symbols → less confident
+  const symbolRatio = (text.match(/[^a-zA-Z\u0900-\u097F\s]/g) || []).length / text.length;
+  if (symbolRatio > 0.25) return 0.60;
+
+  return 0.85; // default high confidence (Sarvam Saaras V3 is accurate)
+}
+
+/**
  * Format diarized transcript with speaker labels and timestamps.
+ * Returns { transcript: string, segments: Array<{speaker, text, startTime, endTime, confidence}> }
  */
 function formatDiarizedTranscript(entries) {
   const lines = [];
+  const segments = [];
   let lastSpeaker = null;
+  let lastSegmentIndex = -1;
 
   for (const entry of entries) {
-    // Sarvam uses: speaker_id, transcript, start_time_seconds, end_time_seconds
     const speaker = entry.speaker_id || entry.speaker || entry.speaker_label || 'Unknown';
     const text = (entry.transcript || entry.text || entry.content || '').trim();
     if (!text) continue;
 
     const startTime = entry.start_time_seconds ?? entry.start_time ?? entry.start ?? null;
-    const timestamp = startTime != null
-      ? `[${formatTime(startTime)}]`
-      : '';
+    const endTime = entry.end_time_seconds ?? entry.end_time ?? entry.end ?? null;
+    const confidence = entry.confidence != null
+      ? parseFloat(entry.confidence)
+      : heuristicConfidence(text);
 
-    // Merge consecutive lines from same speaker
+    const timestamp = startTime != null ? `[${formatTime(startTime)}]` : '';
+
+    // Merge consecutive lines from same speaker into display string
     if (speaker === lastSpeaker && lines.length > 0) {
       lines[lines.length - 1] += ' ' + text;
+      // Extend last segment
+      if (lastSegmentIndex >= 0) {
+        segments[lastSegmentIndex].text += ' ' + text;
+        if (endTime != null) segments[lastSegmentIndex].endTime = endTime;
+        // Average confidence
+        segments[lastSegmentIndex].confidence =
+          (segments[lastSegmentIndex].confidence + confidence) / 2;
+      }
     } else {
       lines.push(`${timestamp} ${speaker}: ${text}`);
+      segments.push({ speaker, text, startTime, endTime, confidence });
+      lastSegmentIndex = segments.length - 1;
       lastSpeaker = speaker;
     }
   }
 
-  return lines.join('\n');
+  return { transcript: lines.join('\n'), segments };
 }
 
 /**
  * Format transcript with timestamp markers.
+ * Returns { transcript: string, segments: [] }
  */
 function formatTimestampedTranscript(timestamps, fullTranscript) {
-  if (!timestamps || timestamps.length === 0) return fullTranscript;
+  if (!timestamps || timestamps.length === 0) return { transcript: fullTranscript, segments: [] };
 
   const lines = [];
   let currentLine = '';
@@ -333,7 +367,7 @@ function formatTimestampedTranscript(timestamps, fullTranscript) {
     lines.push(`[${formatTime(lineStart || 0)}] ${currentLine.trim()}`);
   }
 
-  return lines.join('\n');
+  return { transcript: lines.join('\n'), segments: [] };
 }
 
 /**
