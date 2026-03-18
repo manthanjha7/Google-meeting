@@ -1,5 +1,20 @@
 const express = require('express');
 const { getMeeting, updateSummary, getSettings } = require('../db/queries');
+
+/**
+ * Apply speaker name mapping to a transcript.
+ * Replaces SPEAKER_0, SPEAKER_1, etc. with real names where known.
+ */
+function applyNames(transcript, speakerNames) {
+  if (!speakerNames || Object.keys(speakerNames).length === 0) return transcript;
+  let result = transcript;
+  for (const [label, name] of Object.entries(speakerNames)) {
+    if (name && name.trim()) {
+      result = result.replace(new RegExp(label, 'g'), name.trim());
+    }
+  }
+  return result;
+}
 const { summarize, summarizeStream } = require('../services/summarizer');
 
 const router = express.Router();
@@ -41,7 +56,9 @@ router.post('/', async (req, res) => {
     }
 
     const settings = await getSettings();
-    const summary = await summarize(meeting.transcript, extraInstructions, settings);
+    // Apply speaker name mapping before summarizing (if names have been set)
+    const transcript = applyNames(meeting.transcript, meeting.speakerNames);
+    const summary = await summarize(transcript, extraInstructions, settings);
     await updateSummary(meetingId, summary);
 
     res.json({ meetingId, summary });

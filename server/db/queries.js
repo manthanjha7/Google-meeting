@@ -123,6 +123,7 @@ function parseMeetingRow(row) {
     ...row,
     summary: row.summary ? JSON.parse(row.summary) : null,
     participants: row.participants ? JSON.parse(row.participants) : null,
+    speakerNames: row.speaker_names ? JSON.parse(row.speaker_names) : null,
     slackPosted: Boolean(row.slack_posted),
   };
 }
@@ -155,6 +156,17 @@ async function setSetting(key, value) {
   saveDb();
 }
 
+async function updateSpeakerNames(id, speakerNames) {
+  const db = await getDb();
+  const json = JSON.stringify(speakerNames);
+  db.run(
+    `UPDATE meetings SET speaker_names = ?, updated_at = datetime('now') WHERE id = ?`,
+    [json, id]
+  );
+  saveDb();
+  return getMeeting(id);
+}
+
 module.exports = {
   createMeeting,
   updateTranscript,
@@ -168,4 +180,5 @@ module.exports = {
   deleteMeeting,
   getSettings,
   setSetting,
+  updateSpeakerNames,
 };

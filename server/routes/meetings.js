@@ -2,7 +2,9 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const archiver = require('archiver');
-const { listMeetings, getMeeting, searchMeetings, updateMeetTitle, updateSummary, deleteMeeting } = require('../db/queries');
+const { listMeetings, getMeeting, searchMeetings, updateMeetTitle, updateSummary, deleteMeeting, updateSpeakerNames } = require('../db/queries');
+const { detectSpeakerNames } = require('../services/summarizer');
+const { getSettings } = require('../db/queries');
 
 const router = express.Router();
 
@@ -259,6 +261,43 @@ router.get('/:id/download', async (req, res) => {
   }
 
   archive.finalize();
+});
+
+// GET /api/meetings/:id/speaker-suggestions
+// Uses Azure OpenAI to detect speaker names from transcript text
+router.get('/:id/speaker-suggestions', async (req, res) => {
+  const meeting = await getMeeting(req.params.id);
+  if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
+  if (!meeting.transcript) return res.status(400).json({ error: 'No transcript available' });
+
+  try {
+    const settings = await getSettings();
+    const suggestions = await detectSpeakerNames(meeting.transcript, settings);
+    res.json({ suggestions });
+  } catch (err) {
+    console.error('Speaker detection error:', err);
+    res.status(500).json({ error: 'Speaker detection failed: ' + err.message });
+  }
+});
+
+// POST /api/meetings/:id/speakers
+// Save speaker name mappings { "SPEAKER_0": "Rahul", "SPEAKER_1": "Priya" }
+router.post('/:id/speakers', async (req, res) => {
+  const { speakerNames } = req.body;
+  if (!speakerNames || typeof speakerNames !== 'object') {
+    return res.status(400).json({ error: 'speakerNames object is required' });
+  }
+
+  const meeting = await getMeeting(req.params.id);
+  if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
+
+  try {
+    const updated = await updateSpeakerNames(req.params.id, speakerNames);
+    res.json({ meeting: updated });
+  } catch (err) {
+    console.error('Speaker names update error:', err);
+    res.status(500).json({ error: 'Failed to save speaker names: ' + err.message });
+  }
 });
 
 module.exports = router;

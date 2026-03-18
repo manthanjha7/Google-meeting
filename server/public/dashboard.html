@@ -578,6 +578,23 @@
     </div>
   </div>
 
+  <!-- Speaker Mapping Modal -->
+  <div class="modal-overlay" id="speaker-modal">
+    <div class="modal" style="width:480px;">
+      <h2>&#128100; Name Speakers</h2>
+      <p style="color:#888;font-size:13px;margin-bottom:16px;">AI has detected these speaker labels. Enter real names to improve the summary.</p>
+      <div id="speaker-rows"></div>
+      <div style="margin-top:12px;">
+        <button class="btn btn-secondary btn-sm" id="btn-detect-speakers" style="margin-right:8px;">&#10024; Auto-detect Names</button>
+        <span id="detect-status" style="font-size:12px;color:#888;"></span>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="closeModal('speaker-modal')">Cancel</button>
+        <button class="btn btn-primary" id="btn-save-speakers">Save Names</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Toast container (Feature 10) -->
   <div class="toast-container" id="toast-container"></div>
 
@@ -791,6 +808,7 @@
             <button class="btn btn-secondary btn-sm" onclick="exportMeeting('${m.id}', 'txt')">Export TXT</button>
             <button class="btn btn-secondary btn-sm" onclick="exportMeeting('${m.id}', 'json')">Export JSON</button>
             <button class="btn btn-secondary btn-sm" onclick="retranscribe('${m.id}')">Re-transcribe</button>
+            <button class="btn btn-secondary btn-sm" onclick="openSpeakerMapping('${m.id}')">&#128100; Name Speakers</button>
             <button class="btn btn-danger btn-sm" onclick="deleteMeeting('${m.id}')">Delete</button>
           </div>
         </div>
@@ -989,9 +1007,13 @@
       }
 
       const html = displayLines.map(line => {
+        const speakerNames = currentMeeting?.speakerNames || {};
         return escapeHtml(line)
           .replace(/^(\[[\d:]+\])/g, '<span class="timestamp">$1</span>')
-          .replace(/(SPEAKER_\d+):/g, '<span class="speaker">$1:</span>');
+          .replace(/(SPEAKER_\d+):/g, (match, label) => {
+            const name = speakerNames[label];
+            return `<span class="speaker">${name ? escapeHtml(name) : label}:</span>`;
+          });
       }).join('\n');
 
       return { html, pagination };
@@ -1139,6 +1161,93 @@
         document.getElementById('summary-content').style.display = 'block';
         btn.disabled = false;
         btn.textContent = 'Stream';
+      }
+    }
+
+    // ---- Speaker Name Mapping ----
+
+    let speakerMappingId = null;
+
+    async function openSpeakerMapping(id) {
+      speakerMappingId = id;
+      const meeting = meetings.find(m => m.id === id) || await fetch(`${API}/meetings/${id}`).then(r => r.json()).then(d => d.meeting);
+      if (!meeting || !meeting.transcript) {
+        toast('No transcript available for this meeting', 'error');
+        return;
+      }
+
+      // Extract unique SPEAKER_X labels from transcript
+      const labels = [...new Set((meeting.transcript.match(/SPEAKER_\d+/g) || []))].sort();
+      if (labels.length === 0) {
+        toast('No SPEAKER_X labels found in transcript. Diarization may not have run.', 'info');
+        return;
+      }
+
+      const existing = meeting.speakerNames || {};
+      const rows = document.getElementById('speaker-rows');
+      rows.innerHTML = labels.map(label => `
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">
+          <span style="color:#a0a0ff;font-weight:500;min-width:90px;">${label}</span>
+          <input type="text" id="speaker-input-${label}" value="${escapeHtml(existing[label] || '')}"
+            placeholder="Enter name (e.g. Rahul)"
+            style="flex:1;padding:6px 10px;background:#2a2a4a;border:1px solid #3a3a5a;border-radius:6px;color:#e0e0e0;font-size:13px;">
+        </div>
+      `).join('');
+
+      document.getElementById('detect-status').textContent = '';
+      document.getElementById('btn-detect-speakers').onclick = () => autoDetectSpeakers(meeting.transcript, labels);
+      document.getElementById('btn-save-speakers').onclick = () => saveSpeakerNames(labels);
+      openModal('speaker-modal');
+    }
+
+    async function autoDetectSpeakers(transcript, labels) {
+      const statusEl = document.getElementById('detect-status');
+      const btn = document.getElementById('btn-detect-speakers');
+      btn.disabled = true;
+      statusEl.textContent = 'Analyzing transcript...';
+
+      try {
+        const res = await fetch(`${API}/meetings/${speakerMappingId}/speaker-suggestions`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+
+        const suggestions = data.suggestions || {};
+        let found = 0;
+        for (const [label, name] of Object.entries(suggestions)) {
+          const input = document.getElementById(`speaker-input-${label}`);
+          if (input && name) { input.value = name; found++; }
+        }
+        statusEl.textContent = found > 0 ? `Found ${found} name(s) from transcript` : 'No names detected automatically';
+      } catch (err) {
+        statusEl.textContent = 'Detection failed: ' + err.message;
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    async function saveSpeakerNames(labels) {
+      const speakerNames = {};
+      for (const label of labels) {
+        const val = document.getElementById(`speaker-input-${label}`)?.value.trim();
+        if (val) speakerNames[label] = val;
+      }
+
+      try {
+        const res = await fetch(`${API}/meetings/${speakerMappingId}/speakers`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ speakerNames }),
+        });
+        if (!res.ok) throw new Error((await res.json()).error);
+
+        // Update local meetings cache
+        const idx = meetings.findIndex(m => m.id === speakerMappingId);
+        if (idx !== -1) meetings[idx].speakerNames = speakerNames;
+
+        closeModal('speaker-modal');
+        toast('Speaker names saved. Re-summarize to apply them.', 'success');
+      } catch (err) {
+        toast('Failed to save: ' + err.message, 'error');
       }
     }
 
