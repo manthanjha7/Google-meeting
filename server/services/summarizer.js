@@ -1,43 +1,31 @@
 const { AzureOpenAI, OpenAI } = require('openai');
-
-// ---- Multi-Provider Client Factory ----
-//
-// Supported providers:
-//   azure  — Azure OpenAI (default, uses AZURE_OPENAI_* env vars or settings)
-//   groq   — Groq cloud (fast, cheap; needs groq_api_key in settings)
-//   ollama — Local Ollama server (free; needs ollama_base_url in settings)
+const Anthropic = require('@anthropic-ai/sdk');
 
 function buildClient(settings = {}) {
-  const provider = settings.llm_provider || 'azure';
+  const provider = settings.llmProvider || settings.llm_provider || process.env.LLM_PROVIDER || 'azure';
 
   if (provider === 'groq') {
-    const apiKey = settings.groq_api_key;
-    if (!apiKey) throw new Error('groq_api_key not configured in settings');
-    return {
-      client: new OpenAI({ baseURL: 'https://api.groq.com/openai/v1', apiKey }),
-      model: settings.groq_model || 'llama-3.3-70b-versatile',
-    };
+    const apiKey = process.env.GROQ_API_KEY;
+    if (!apiKey) throw new Error('GROQ_API_KEY is not set in .env.');
+    return { client: new OpenAI({ baseURL: 'https://api.groq.com/openai/v1', apiKey }), model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile' };
   }
 
   if (provider === 'ollama') {
-    const baseURL = (settings.ollama_base_url || 'http://localhost:11434') + '/v1';
-    return {
-      client: new OpenAI({ baseURL, apiKey: 'ollama' }),
-      model: settings.ollama_model || 'llama3.2',
-    };
+    const baseURL = (process.env.OLLAMA_URL || 'http://localhost:11434') + '/v1';
+    return { client: new OpenAI({ baseURL, apiKey: 'ollama' }), model: process.env.OLLAMA_MODEL || 'llama3.2' };
   }
 
-  // Default: Azure OpenAI
-  const endpoint = process.env.AZURE_OPENAI_ENDPOINT;
-  const apiKey = process.env.AZURE_OPENAI_API_KEY;
+  // Azure OpenAI (default)
+  const endpoint   = (process.env.AZURE_OPENAI_ENDPOINT || '').replace(/\/$/, '');
+  const apiKey     = process.env.AZURE_OPENAI_API_KEY;
+  const deployment = process.env.AZURE_OPENAI_DEPLOYMENT || 'gpt-4o';
   const apiVersion = process.env.AZURE_OPENAI_API_VERSION || '2024-08-01-preview';
-  if (!endpoint || !apiKey) {
-    throw new Error('AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_API_KEY must be set');
-  }
-  return {
-    client: new AzureOpenAI({ endpoint, apiKey, apiVersion }),
-    model: process.env.AZURE_OPENAI_DEPLOYMENT || 'gpt-4o',
-  };
+
+  if (!endpoint) throw new Error('AZURE_OPENAI_ENDPOINT is not set in .env. Add your Azure Cognitive Services endpoint and restart the server.');
+  if (!apiKey)   throw new Error('AZURE_OPENAI_API_KEY is not set in .env. Add your Azure API key and restart the server.');
+
+  console.log(`[AzureOpenAI] endpoint=${endpoint} deployment=${deployment} apiVersion=${apiVersion}`);
+  return { client: new AzureOpenAI({ endpoint, apiKey, apiVersion, deployment }), model: deployment };
 }
 
 // ---- Transcript Chunking ----
@@ -201,12 +189,12 @@ async function summarize(transcript, extraInstructions = '', settings = {}) {
 }
 
 async function summarizeStream(transcript, extraInstructions = '', onChunk, settings = {}) {
-  const { client, model } = buildClient(settings);
+  const clientObj = buildClient(settings);
   const prompt = buildPrompt(SUMMARY_PROMPT, extraInstructions) + transcript;
 
-  const stream = await client.chat.completions.create({
-    model,
-    max_tokens: 4096,
+  const stream = await clientObj.client.chat.completions.create({
+    model: clientObj.model,
+    max_completion_tokens: 4096,
     messages: [{ role: 'user', content: prompt }],
     stream: true,
   });
@@ -219,10 +207,10 @@ async function summarizeStream(transcript, extraInstructions = '', onChunk, sett
 
 async function detectSpeakerNames(transcript, settings = {}) {
   try {
-    const { client, model } = buildClient(settings);
-    const response = await client.chat.completions.create({
-      model,
-      max_tokens: 256,
+    const clientObj = buildClient(settings);
+    const response = await clientObj.client.chat.completions.create({
+      model: clientObj.model,
+      max_completion_tokens: 256,
       messages: [{ role: 'user', content: SPEAKER_DETECTION_PROMPT + transcript }],
     });
 
@@ -244,14 +232,14 @@ function buildPrompt(basePrompt, extraInstructions = '') {
 }
 
 async function summarizeSingle(transcript, extraInstructions = '', settings = {}) {
-  const { client, model } = buildClient(settings);
+  const clientObj = buildClient(settings);
   const prompt = extraInstructions
     ? buildPrompt(SUMMARY_PROMPT.replace(/\nTRANSCRIPT:\n$/, ''), extraInstructions)
     : SUMMARY_PROMPT;
 
-  const response = await client.chat.completions.create({
-    model,
-    max_tokens: 4096,
+  const response = await clientObj.client.chat.completions.create({
+    model: clientObj.model,
+    max_completion_tokens: 4096,
     messages: [{ role: 'user', content: prompt + transcript }],
   });
 
@@ -259,7 +247,7 @@ async function summarizeSingle(transcript, extraInstructions = '', settings = {}
 }
 
 async function summarizeChunked(chunks, extraInstructions = '', settings = {}) {
-  const { client, model } = buildClient(settings);
+  const clientObj = buildClient(settings);
   const chunkSummaries = [];
 
   for (let i = 0; i < chunks.length; i++) {
@@ -270,27 +258,25 @@ async function summarizeChunked(chunks, extraInstructions = '', settings = {}) {
       .replace('TOTAL_CHUNKS', String(chunks.length));
 
     try {
-      const response = await client.chat.completions.create({
-        model,
-        max_tokens: 2048,
+      const response = await clientObj.client.chat.completions.create({
+        model: clientObj.model,
+        max_completion_tokens: 2048,
         messages: [{ role: 'user', content: prompt + chunks[i] }],
       });
       chunkSummaries.push(response.choices[0].message.content);
     } catch (chunkErr) {
-      console.warn(`[Summarizer] Chunk ${i + 1}/${chunks.length} failed, using empty placeholder:`, chunkErr.message);
+      console.warn(`[Summarizer] Chunk ${i + 1}/${chunks.length} failed:`, chunkErr.message);
       chunkSummaries.push(JSON.stringify({ keyPoints: [], decisions: [], actionItems: [], participants: [], deadlines: [], context: `[Chunk ${i + 1} could not be processed]` }));
     }
   }
 
   console.log(`[Summarizer] Merging ${chunkSummaries.length} chunk summaries`);
 
-  const mergeInput = chunkSummaries
-    .map((s, i) => `--- Segment ${i + 1} ---\n${s}`)
-    .join('\n\n');
+  const mergeInput = chunkSummaries.map((s, i) => `--- Segment ${i + 1} ---\n${s}`).join('\n\n');
 
-  const mergeResponse = await client.chat.completions.create({
-    model,
-    max_tokens: 4096,
+  const mergeResponse = await clientObj.client.chat.completions.create({
+    model: clientObj.model,
+    max_completion_tokens: 4096,
     messages: [{ role: 'user', content: MERGE_PROMPT + mergeInput }],
   });
 

@@ -1,0 +1,67 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Backgrounds — dark navy with depth */
+    --background:  222 22%  8%;   /* #111827  */
+    --card:        222 22% 11%;   /* #161e2e  */
+    --popover:     222 22% 11%;
+    --input:       222 22% 13%;   /* #1a2235  */
+    --muted:       222 22% 13%;
+
+    /* Text — clear 3-level hierarchy */
+    --foreground:          220 20% 96%;   /* #f1f3f9  near-white        */
+    --card-foreground:     220 20% 96%;
+    --popover-foreground:  220 20% 96%;
+    --secondary-foreground: 220 15% 72%;  /* #adb3ca  readable body     */
+    --muted-foreground:    220 12% 48%;   /* #6e7590  clearly muted     */
+    --accent-foreground:   230 30% 90%;   /* #d6daf2  hover labels      */
+
+    /* Accent surfaces */
+    --secondary: 222 22% 16%;     /* #1e2840  subtle bg              */
+    --accent:    230 30% 20%;     /* #232c4a  hover state            */
+
+    /* Brand — vivid indigo */
+    --primary:          248 88% 68%;   /* #7b6df8 */
+    --primary-foreground: 0 0% 100%;
+
+    /* Status */
+    --destructive:            4 82% 60%;   /* #f05252 */
+    --destructive-foreground: 0 0% 100%;
+
+    /* Chrome */
+    --border: 222 22% 18%;   /* #212d42 */
+    --ring:   248 88% 68%;
+
+    /* Layout */
+    --radius:     0.5rem;
+    --sidebar-bg: 222 26%  6%;   /* #0d1220 */
+  }
+}
+
+* { border-color: hsl(var(--border)); }
+
+body {
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+/* Scrollbars */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground)); }
+
+/* Smooth focus ring */
+*:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+  border-radius: var(--radius);
+}

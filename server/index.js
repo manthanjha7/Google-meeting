@@ -1,4 +1,4 @@
-require('dotenv').config();
+require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
 
 const express = require('express');
 const cors = require('cors');
@@ -22,12 +22,20 @@ const allowedOrigins = process.env.CORS_ORIGINS
 app.use(cors(allowedOrigins ? { origin: allowedOrigins } : {}));
 app.use(express.json({ limit: '50mb' }));
 
-// Serve dashboard static files
+// Serve legacy static files
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Dashboard route
-app.get('/dashboard', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'dashboard.html'));
+// React dashboard (served from /dashboard/)
+const dashboardDist = path.join(__dirname, 'public', 'dashboard');
+app.use('/dashboard', express.static(dashboardDist));
+app.get('/dashboard/*', (req, res) => {
+  const indexPath = path.join(dashboardDist, 'index.html');
+  if (fs.existsSync(indexPath)) {
+    res.sendFile(indexPath);
+  } else {
+    // Fallback to old dashboard
+    res.sendFile(path.join(__dirname, 'public', 'dashboard.html'));
+  }
 });
 
 // Routes
@@ -41,6 +49,7 @@ app.use('/api/settings', require('./routes/settings'));
 app.use('/api/analytics', require('./routes/analytics'));
 app.use('/api/kb', require('./routes/kb'));
 app.use('/api/calendar', require('./routes/calendar'));
+app.use('/api/templates', require('./routes/templates'));
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -55,7 +64,7 @@ app.use((err, req, res, next) => {
 
 // Initialize DB then start server
 const { getDb } = require('./db/schema');
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3001;
 
 getDb().then(() => {
   app.listen(PORT, () => {

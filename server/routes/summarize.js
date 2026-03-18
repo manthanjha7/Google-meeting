@@ -29,7 +29,7 @@ const TEMPLATES = {
 
 // POST /api/summarize — standard (non-streaming)
 router.post('/', async (req, res) => {
-  const { meetingId, template, customPrompt } = req.body;
+  const { meetingId, template, customPrompt, templateId } = req.body;
 
   if (!meetingId) {
     return res.status(400).json({ error: 'meetingId is required' });
@@ -47,9 +47,18 @@ router.post('/', async (req, res) => {
   }
 
   try {
-    // Build extra instructions from template or custom prompt
+    // Build extra instructions from templateId, custom prompt, or built-in template
     let extraInstructions = '';
-    if (customPrompt) {
+    if (templateId) {
+      const { getTemplate } = require('../db/queries');
+      const tmpl = await getTemplate(templateId);
+      if (tmpl) {
+        const sectionsText = (tmpl.sections || [])
+          .map(s => `**${s.title}**\n${s.prompt}`)
+          .join('\n\n');
+        extraInstructions = `Meeting Context:\n${tmpl.meeting_context}\n\nExtract these specific sections:\n\n${sectionsText}\n\nIn your JSON response, include a "customSections" array: [{"title":"...","content":"..."}] with one entry per section above.`;
+      }
+    } else if (customPrompt) {
       extraInstructions = customPrompt;
     } else if (template && TEMPLATES[template]) {
       extraInstructions = TEMPLATES[template];

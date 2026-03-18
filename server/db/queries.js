@@ -206,6 +206,65 @@ async function getSegments(meetingId) {
   return results;
 }
 
+async function listTemplates() {
+  const db = await getDb();
+  const templates = [];
+  const stmt = db.prepare('SELECT * FROM summary_templates ORDER BY created_at ASC');
+  while (stmt.step()) templates.push(stmt.getAsObject());
+  stmt.free();
+
+  for (const t of templates) {
+    t.sections = [];
+    const s = db.prepare('SELECT * FROM template_sections WHERE template_id = ? ORDER BY position ASC');
+    s.bind([t.id]);
+    while (s.step()) t.sections.push(s.getAsObject());
+    s.free();
+  }
+  return templates;
+}
+
+async function getTemplate(id) {
+  const db = await getDb();
+  const stmt = db.prepare('SELECT * FROM summary_templates WHERE id = ?');
+  stmt.bind([id]);
+  if (!stmt.step()) { stmt.free(); return null; }
+  const t = stmt.getAsObject();
+  stmt.free();
+  t.sections = [];
+  const s = db.prepare('SELECT * FROM template_sections WHERE template_id = ? ORDER BY position ASC');
+  s.bind([id]);
+  while (s.step()) t.sections.push(s.getAsObject());
+  s.free();
+  return t;
+}
+
+async function createTemplate(name, meetingContext = '') {
+  const db = await getDb();
+  const id = require('crypto').randomUUID();
+  db.run('INSERT INTO summary_templates (id, name, meeting_context) VALUES (?, ?, ?)', [id, name, meetingContext]);
+  saveDb();
+  return getTemplate(id);
+}
+
+async function updateTemplate(id, name, meetingContext, sections = []) {
+  const db = await getDb();
+  db.run("UPDATE summary_templates SET name = ?, meeting_context = ?, updated_at = datetime('now') WHERE id = ?", [name, meetingContext, id]);
+  db.run('DELETE FROM template_sections WHERE template_id = ?', [id]);
+  sections.forEach((sec, i) => {
+    db.run('INSERT INTO template_sections (id, template_id, title, prompt, position) VALUES (?, ?, ?, ?, ?)',
+      [require('crypto').randomUUID(), id, sec.title, sec.prompt || '', i]);
+  });
+  saveDb();
+  return getTemplate(id);
+}
+
+async function deleteTemplate(id) {
+  const db = await getDb();
+  db.run('DELETE FROM template_sections WHERE template_id = ?', [id]);
+  db.run('DELETE FROM summary_templates WHERE id = ?', [id]);
+  saveDb();
+}
+
 module.exports = {
   createMeeting,
   updateTranscript,
@@ -223,4 +282,9 @@ module.exports = {
   saveSegments,
   getSegments,
   updateCalendarData,
+  listTemplates,
+  getTemplate,
+  createTemplate,
+  updateTemplate,
+  deleteTemplate,
 };
