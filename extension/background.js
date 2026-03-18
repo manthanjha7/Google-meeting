@@ -166,22 +166,21 @@ async function runPipeline(audioBase64) {
 
     if (!transcribeRes.ok) throw new Error(transcribeData.error || 'Transcription failed');
 
-    // Step 3: Summarize (skipped — no Claude API key configured yet)
-    // TODO: Uncomment when ANTHROPIC_API_KEY is available
-    // await setState('processing', { step: 'summarizing', meetingId });
-    // const summarizeRes = await fetch(`${API_BASE}/summarize`, {
-    //   method: 'POST',
-    //   headers: { 'Content-Type': 'application/json' },
-    //   body: JSON.stringify({ meetingId }),
-    // });
-    // const summarizeData = await summarizeRes.json();
-    // if (!summarizeRes.ok) throw new Error(summarizeData.error || 'Summarization failed');
+    // Step 3: Summarize via Azure OpenAI
+    await setState('processing', { step: 'summarizing', meetingId });
+    const summarizeRes = await fetch(`${API_BASE}/summarize`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ meetingId }),
+    });
+    const summarizeData = await summarizeRes.json();
+    if (!summarizeRes.ok) throw new Error(summarizeData.error || 'Summarization failed');
 
     // Pipeline complete
     clearBadge();
     await setState('summary-ready', {
       meetingId,
-      summary: null,
+      summary: summarizeData.summary,
     });
   } catch (err) {
     console.error('Pipeline error:', err);
@@ -278,21 +277,20 @@ async function runChunkedPipeline(audioChunks) {
       body: JSON.stringify({ meetingId, transcript: mergedTranscript }),
     });
 
-    // Step 5: Summarize the merged transcript (skipped — no Claude API key configured yet)
-    // TODO: Uncomment when ANTHROPIC_API_KEY is available
-    // await setState('processing', { step: 'summarizing', meetingId });
-    // const summarizeRes = await fetch(`${API_BASE}/summarize`, {
-    //   method: 'POST',
-    //   headers: { 'Content-Type': 'application/json' },
-    //   body: JSON.stringify({ meetingId }),
-    // });
-    // const summarizeData = await summarizeRes.json();
-    // if (!summarizeRes.ok) throw new Error(summarizeData.error || 'Summarization failed');
+    // Step 5: Summarize the merged transcript via Azure OpenAI
+    await setState('processing', { step: 'summarizing', meetingId });
+    const summarizeRes = await fetch(`${API_BASE}/summarize`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ meetingId }),
+    });
+    const summarizeData = await summarizeRes.json();
+    if (!summarizeRes.ok) throw new Error(summarizeData.error || 'Summarization failed');
 
     clearBadge();
     await setState('summary-ready', {
       meetingId,
-      summary: null,
+      summary: summarizeData.summary,
     });
   } catch (err) {
     console.error('Chunked pipeline error:', err);
