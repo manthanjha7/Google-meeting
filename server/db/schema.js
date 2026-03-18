@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 
 const DB_PATH = path.join(__dirname, '..', '..', 'meetings.db');
+const MIGRATIONS_DIR = path.join(__dirname, 'migrations');
 
 let db;
 
@@ -10,7 +11,6 @@ async function getDb() {
   if (!db) {
     const SQL = await initSqlJs();
 
-    // Load existing database file if it exists
     if (fs.existsSync(DB_PATH)) {
       const fileBuffer = fs.readFileSync(DB_PATH);
       db = new SQL.Database(fileBuffer);
@@ -18,43 +18,46 @@ async function getDb() {
       db = new SQL.Database();
     }
 
-    initSchema();
+    // Enable WAL mode for better concurrent read/write performance
+    db.run('PRAGMA journal_mode=WAL');
+    db.run('PRAGMA foreign_keys=ON');
+
+    runMigrations();
   }
   return db;
 }
 
-function initSchema() {
+function runMigrations() {
+  // Create migrations tracking table if it doesn't exist
   db.run(`
-    CREATE TABLE IF NOT EXISTS meetings (
+    CREATE TABLE IF NOT EXISTS schema_migrations (
       id TEXT PRIMARY KEY,
-      title TEXT,
-      call_type TEXT,
-      audio_path TEXT,
-      transcript TEXT,
-      summary TEXT,
-      participants TEXT,
-      duration_seconds INTEGER,
-      slack_posted INTEGER DEFAULT 0,
-      meet_title TEXT,
-      meet_url TEXT,
-      created_at TEXT DEFAULT (datetime('now')),
-      updated_at TEXT DEFAULT (datetime('now'))
+      applied_at TEXT DEFAULT (datetime('now'))
     )
   `);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_meetings_call_type ON meetings(call_type)`);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_meetings_created_at ON meetings(created_at)`);
 
-  // Add columns for existing databases (safe to run multiple times)
-  try { db.run(`ALTER TABLE meetings ADD COLUMN meet_title TEXT`); } catch (e) { /* already exists */ }
-  try { db.run(`ALTER TABLE meetings ADD COLUMN meet_url TEXT`); } catch (e) { /* already exists */ }
+  // Get already-applied migrations
+  const applied = new Set();
+  const stmt = db.prepare('SELECT id FROM schema_migrations');
+  while (stmt.step()) {
+    applied.add(stmt.getAsObject().id);
+  }
+  stmt.free();
 
-  // Settings key-value store
-  db.run(`
-    CREATE TABLE IF NOT EXISTS settings (
-      key TEXT PRIMARY KEY,
-      value TEXT
-    )
-  `);
+  // Load and run pending migrations in order
+  const files = fs.readdirSync(MIGRATIONS_DIR)
+    .filter(f => f.endsWith('.js'))
+    .sort();
+
+  for (const file of files) {
+    const migration = require(path.join(MIGRATIONS_DIR, file));
+    if (!applied.has(migration.id)) {
+      console.log(`[DB] Running migration: ${migration.id}`);
+      migration.up(db);
+      db.run('INSERT INTO schema_migrations (id) VALUES (?)', [migration.id]);
+      console.log(`[DB] Migration applied: ${migration.id}`);
+    }
+  }
 
   saveDb();
 }
