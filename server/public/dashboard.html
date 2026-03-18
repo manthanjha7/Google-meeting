@@ -517,6 +517,7 @@
         <option value="product">Product</option>
       </select>
       <button class="btn btn-secondary" id="btn-analytics" title="Analytics">Analytics</button>
+      <button class="btn btn-secondary" id="btn-kb" title="Knowledge Base">Ask KB</button>
       <button class="btn btn-secondary" id="btn-settings" title="Settings">Settings</button>
       <button class="btn btn-primary" id="btn-import" title="Import audio file">Import Audio</button>
     </div>
@@ -534,6 +535,50 @@
         <p>Select a meeting to view details</p>
       </div>
       <div id="meeting-detail" style="display: none;"></div>
+
+      <!-- Knowledge Base Panel -->
+      <div id="kb-panel" style="display:none;padding:28px 32px;overflow-y:auto;height:100%;">
+        <div class="analytics-header">Knowledge Base</div>
+
+        <!-- Query -->
+        <div style="margin-bottom:20px;">
+          <div style="display:flex;gap:10px;margin-bottom:8px;">
+            <input type="text" id="kb-question" placeholder="Ask a question across all your meeting transcripts..."
+              style="flex:1;padding:9px 14px;background:#2a2a4a;border:1px solid #3a3a5a;border-radius:6px;color:#e0e0e0;font-size:13px;outline:none;">
+            <button class="btn btn-primary" id="btn-kb-ask">Ask</button>
+          </div>
+          <div id="kb-answer-box" style="display:none;background:#1a1a2e;border:1px solid #2a2a4a;border-radius:8px;padding:14px;margin-top:8px;">
+            <div id="kb-answer-text" style="font-size:13px;color:#e0e0e0;line-height:1.6;white-space:pre-wrap;"></div>
+            <div id="kb-sources" style="margin-top:10px;font-size:11px;color:#888;"></div>
+          </div>
+        </div>
+
+        <!-- Ingest text -->
+        <div style="margin-bottom:20px;">
+          <div style="font-size:13px;font-weight:600;color:#ccc;margin-bottom:8px;">Add Document</div>
+          <div style="display:flex;gap:8px;margin-bottom:6px;">
+            <input type="text" id="kb-doc-name" placeholder="Document name (optional)"
+              style="width:200px;padding:7px 12px;background:#2a2a4a;border:1px solid #3a3a5a;border-radius:6px;color:#e0e0e0;font-size:12px;outline:none;">
+            <input type="file" id="kb-file-input" accept=".txt,.md" style="display:none;">
+            <button class="btn btn-secondary btn-sm" onclick="document.getElementById('kb-file-input').click()">Upload .txt / .md</button>
+            <button class="btn btn-secondary btn-sm" id="btn-kb-ingest-text">Paste Text</button>
+          </div>
+          <div id="kb-paste-area" style="display:none;">
+            <textarea id="kb-paste-text" placeholder="Paste text to add to the knowledge base..."
+              style="width:100%;min-height:80px;padding:8px 12px;background:#2a2a4a;border:1px solid #3a3a5a;border-radius:6px;color:#e0e0e0;font-size:12px;resize:vertical;font-family:inherit;"></textarea>
+            <button class="btn btn-primary btn-sm" id="btn-kb-save-paste" style="margin-top:6px;">Save to KB</button>
+          </div>
+        </div>
+
+        <!-- Documents list -->
+        <div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <div style="font-size:13px;font-weight:600;color:#ccc;">Documents in KB</div>
+            <button class="btn btn-secondary btn-sm" id="btn-kb-refresh">Refresh</button>
+          </div>
+          <div id="kb-doc-list" style="font-size:12px;color:#aaa;"></div>
+        </div>
+      </div>
 
       <!-- Analytics Panel -->
       <div id="analytics-panel">
@@ -860,6 +905,7 @@
 
       document.getElementById('empty-state').style.display = 'none';
       document.getElementById('analytics-panel').classList.remove('active');
+      document.getElementById('kb-panel').style.display = 'none';
       const detail = document.getElementById('meeting-detail');
       detail.style.display = 'block';
 
@@ -906,6 +952,7 @@
             <button class="btn btn-secondary btn-sm" onclick="exportMeeting('${m.id}', 'md')">Export MD</button>
             <button class="btn btn-secondary btn-sm" onclick="exportMeeting('${m.id}', 'pdf')">Export PDF</button>
             <button class="btn btn-secondary btn-sm" onclick="exportMeeting('${m.id}', 'json')">Export JSON</button>
+            <button class="btn btn-secondary btn-sm" onclick="ingestMeetingToKb('${m.id}')">Add to KB</button>
             <button class="btn btn-secondary btn-sm" onclick="retranscribe('${m.id}')">Re-transcribe</button>
             <button class="btn btn-secondary btn-sm" onclick="openSpeakerMapping('${m.id}')">&#128100; Name Speakers</button>
             <button class="btn btn-danger btn-sm" onclick="deleteMeeting('${m.id}')">Delete</button>
@@ -1475,6 +1522,137 @@
       if (!search) {
         loadMeetings(e.target.value);
       }
+    });
+
+    // ---- Knowledge Base ----
+
+    async function openKb() {
+      document.getElementById('empty-state').style.display = 'none';
+      document.getElementById('meeting-detail').style.display = 'none';
+      document.getElementById('analytics-panel').classList.remove('active');
+      document.getElementById('kb-panel').style.display = 'block';
+      await refreshKbDocs();
+    }
+
+    async function refreshKbDocs() {
+      const list = document.getElementById('kb-doc-list');
+      list.textContent = 'Loading...';
+      try {
+        const res = await fetch(`${API}/kb/documents`);
+        const data = await res.json();
+        if (!data.documents.length) {
+          list.innerHTML = '<span style="color:#555">No documents yet. Add meetings or paste text above.</span>';
+          return;
+        }
+        list.innerHTML = data.documents.map(d => `
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid #1e1e35;">
+            <span>${d.filename} <span style="color:#555">(${d.chunk_count} chunks)</span></span>
+            <button class="btn btn-danger btn-sm" onclick="deleteKbDoc('${d.id}')">Delete</button>
+          </div>
+        `).join('');
+      } catch (err) {
+        list.innerHTML = '<span style="color:#ff8888">Failed to load documents</span>';
+      }
+    }
+
+    async function deleteKbDoc(id) {
+      if (!confirm('Delete this document from the knowledge base?')) return;
+      await fetch(`${API}/kb/documents/${id}`, { method: 'DELETE' });
+      await refreshKbDocs();
+      toast('Document deleted', 'info');
+    }
+
+    async function ingestMeetingToKb(meetingId) {
+      try {
+        const res = await fetch(`${API}/kb/ingest-meeting/${meetingId}`, { method: 'POST' });
+        const data = await res.json();
+        if (data.skipped) return toast('Transcript already in knowledge base', 'info');
+        toast(`Added ${data.chunkCount} chunks to KB`, 'success');
+      } catch (err) {
+        toast('Failed to add to KB: ' + err.message, 'error');
+      }
+    }
+
+    document.getElementById('btn-kb').addEventListener('click', openKb);
+    document.getElementById('btn-kb-refresh').addEventListener('click', refreshKbDocs);
+
+    document.getElementById('btn-kb-ask').addEventListener('click', async () => {
+      const question = document.getElementById('kb-question').value.trim();
+      if (!question) return;
+      const btn = document.getElementById('btn-kb-ask');
+      btn.disabled = true; btn.textContent = 'Thinking...';
+      const box = document.getElementById('kb-answer-box');
+      box.style.display = 'block';
+      document.getElementById('kb-answer-text').textContent = '...';
+      document.getElementById('kb-sources').textContent = '';
+      try {
+        const res = await fetch(`${API}/kb/query`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ question }),
+        });
+        const data = await res.json();
+        document.getElementById('kb-answer-text').textContent = data.answer;
+        if (data.chunks?.length) {
+          document.getElementById('kb-sources').innerHTML =
+            'Sources: ' + data.chunks.map(c => `<em>${c.filename}</em> (${c.score})`).join(', ');
+        }
+      } catch (err) {
+        document.getElementById('kb-answer-text').textContent = 'Error: ' + err.message;
+      } finally {
+        btn.disabled = false; btn.textContent = 'Ask';
+      }
+    });
+
+    document.getElementById('kb-question').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') document.getElementById('btn-kb-ask').click();
+    });
+
+    document.getElementById('btn-kb-ingest-text').addEventListener('click', () => {
+      const area = document.getElementById('kb-paste-area');
+      area.style.display = area.style.display === 'none' ? 'block' : 'none';
+    });
+
+    document.getElementById('btn-kb-save-paste').addEventListener('click', async () => {
+      const text = document.getElementById('kb-paste-text').value.trim();
+      if (!text) return;
+      const filename = document.getElementById('kb-doc-name').value.trim() || 'pasted_text.txt';
+      const btn = document.getElementById('btn-kb-save-paste');
+      btn.disabled = true; btn.textContent = 'Saving...';
+      try {
+        const res = await fetch(`${API}/kb/ingest`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text, filename }),
+        });
+        const data = await res.json();
+        if (data.skipped) { toast('Already in KB', 'info'); }
+        else { toast(`Added ${data.chunkCount} chunks to KB`, 'success'); }
+        document.getElementById('kb-paste-text').value = '';
+        document.getElementById('kb-paste-area').style.display = 'none';
+        await refreshKbDocs();
+      } catch (err) {
+        toast('Ingest failed: ' + err.message, 'error');
+      } finally {
+        btn.disabled = false; btn.textContent = 'Save to KB';
+      }
+    });
+
+    document.getElementById('kb-file-input').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const formData = new FormData();
+      formData.append('file', file);
+      try {
+        const res = await fetch(`${API}/kb/ingest`, { method: 'POST', body: formData });
+        const data = await res.json();
+        if (data.skipped) { toast('File already in KB', 'info'); }
+        else { toast(`Added ${data.chunkCount} chunks from ${file.name}`, 'success'); }
+        await refreshKbDocs();
+      } catch (err) {
+        toast('File ingest failed: ' + err.message, 'error');
+      }
+      e.target.value = '';
     });
 
     // ---- Analytics ----
