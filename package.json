@@ -16,6 +16,7 @@
     "multer": "^1.4.5-lts.1",
     "onnxruntime-node": "^1.24.3",
     "openai": "^6.32.0",
+    "pdfkit": "^0.18.0",
     "sql.js": "^1.11.0",
     "uuid": "^11.0.0"
   }

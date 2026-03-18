@@ -2,6 +2,7 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const archiver = require('archiver');
+const PDFDocument = require('pdfkit');
 const { listMeetings, getMeeting, searchMeetings, updateMeetTitle, updateSummary, deleteMeeting, updateSpeakerNames } = require('../db/queries');
 const { detectSpeakerNames } = require('../services/summarizer');
 const { getSettings } = require('../db/queries');
@@ -64,7 +65,7 @@ router.get('/:id/transcript', async (req, res) => {
   });
 });
 
-// GET /api/meetings/:id/export?format=txt|json
+// GET /api/meetings/:id/export?format=txt|json|md|pdf
 router.get('/:id/export', async (req, res) => {
   const meeting = await getMeeting(req.params.id);
   if (!meeting) {
@@ -89,6 +90,21 @@ router.get('/:id/export', async (req, res) => {
       summary: meeting.summary,
       participants: meeting.participants,
     });
+    return;
+  }
+
+  if (format === 'md') {
+    const md = buildMarkdown(meeting);
+    res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeTitle}.md"`);
+    res.send(md);
+    return;
+  }
+
+  if (format === 'pdf') {
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeTitle}.pdf"`);
+    buildPdf(meeting, res);
     return;
   }
 
@@ -126,6 +142,105 @@ router.get('/:id/export', async (req, res) => {
   res.setHeader('Content-Disposition', `attachment; filename="${safeTitle}.txt"`);
   res.send(content);
 });
+
+// ---- Export helpers ----
+
+function formatDuration(seconds) {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  return h > 0 ? `${h}h ${m}m ${s}s` : `${m}m ${s}s`;
+}
+
+function buildMarkdown(meeting) {
+  const t = meeting.title || meeting.meet_title || 'Untitled Meeting';
+  let md = `# ${t}\n\n`;
+
+  md += `**Date:** ${meeting.created_at || 'Unknown'}  \n`;
+  if (meeting.meet_url) md += `**URL:** ${meeting.meet_url}  \n`;
+  if (meeting.duration_seconds) md += `**Duration:** ${formatDuration(meeting.duration_seconds)}  \n`;
+  if (meeting.call_type) md += `**Call Type:** ${meeting.call_type}  \n`;
+
+  if (meeting.summary) {
+    const s = meeting.summary;
+    md += `\n---\n\n## Summary\n\n${s.summary || ''}\n`;
+
+    if (s.participants?.length) {
+      md += `\n## Participants\n\n${s.participants.map((p) => `- ${p}`).join('\n')}\n`;
+    }
+    if (s.decisions?.length) {
+      md += `\n## Key Decisions\n\n${s.decisions.map((d) => `- ${d}`).join('\n')}\n`;
+    }
+    if (s.actionItems?.length) {
+      md += `\n## Action Items\n\n${s.actionItems.map((a) => `- [ ] ${a}`).join('\n')}\n`;
+    }
+    if (s.followUps?.length) {
+      md += `\n## Follow-ups\n\n${s.followUps.map((f) => `- ${f}`).join('\n')}\n`;
+    }
+    if (s.deadlines?.length) {
+      md += `\n## Deadlines\n\n${s.deadlines.map((d) => `- ${d}`).join('\n')}\n`;
+    }
+    if (s.nextSteps?.length) {
+      md += `\n## Next Steps\n\n${s.nextSteps.map((n) => `- ${n}`).join('\n')}\n`;
+    }
+  }
+
+  md += `\n---\n\n## Transcript\n\n${meeting.transcript || '*(No transcript available)*'}\n`;
+  return md;
+}
+
+function buildPdf(meeting, stream) {
+  const doc = new PDFDocument({ margin: 50, size: 'A4' });
+  doc.pipe(stream);
+
+  const title = meeting.title || meeting.meet_title || 'Untitled Meeting';
+
+  // Header
+  doc.fontSize(20).font('Helvetica-Bold').text(title, { align: 'left' });
+  doc.moveDown(0.4);
+
+  // Meta
+  doc.fontSize(10).font('Helvetica').fillColor('#555555');
+  doc.text(`Date: ${meeting.created_at || 'Unknown'}`);
+  if (meeting.meet_url) doc.text(`URL: ${meeting.meet_url}`);
+  if (meeting.duration_seconds) doc.text(`Duration: ${formatDuration(meeting.duration_seconds)}`);
+  if (meeting.call_type) doc.text(`Call Type: ${meeting.call_type}`);
+  doc.fillColor('#000000');
+
+  if (meeting.summary) {
+    const s = meeting.summary;
+
+    doc.moveDown(0.8).fontSize(14).font('Helvetica-Bold').text('Summary');
+    doc.moveDown(0.3).fontSize(10).font('Helvetica').text(s.summary || '', { lineGap: 3 });
+
+    const sections = [
+      { key: 'participants', label: 'Participants' },
+      { key: 'decisions', label: 'Key Decisions' },
+      { key: 'actionItems', label: 'Action Items' },
+      { key: 'followUps', label: 'Follow-ups' },
+      { key: 'deadlines', label: 'Deadlines' },
+      { key: 'nextSteps', label: 'Next Steps' },
+    ];
+
+    for (const { key, label } of sections) {
+      if (s[key]?.length) {
+        doc.moveDown(0.6).fontSize(13).font('Helvetica-Bold').text(label);
+        doc.fontSize(10).font('Helvetica');
+        s[key].forEach((item) => {
+          doc.moveDown(0.2).text(`• ${item}`, { indent: 10, lineGap: 2 });
+        });
+      }
+    }
+  }
+
+  if (meeting.transcript) {
+    doc.moveDown(0.8).fontSize(14).font('Helvetica-Bold').text('Transcript');
+    doc.moveDown(0.3).fontSize(9).font('Helvetica').fillColor('#333333')
+      .text(meeting.transcript, { lineGap: 3, paragraphGap: 4 });
+  }
+
+  doc.end();
+}
 
 // GET /api/meetings/:id/audio — stream the audio file
 router.get('/:id/audio', async (req, res) => {
