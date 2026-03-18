@@ -3,13 +3,15 @@ import { Loader2, Save, Info } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog'
 import { Button } from '../ui/button'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../ui/select'
-import type { Settings } from '../../types'
+import type { Settings, UserIdentity } from '../../types'
 
 interface Props {
   open: boolean
   settings: Settings
+  identity?: UserIdentity
   onClose: () => void
   onSave: (s: Settings) => Promise<void>
+  onNameChange: (name: string) => void
 }
 
 const PROVIDER_ENV: Record<string, { label: string; vars: string[] }> = {
@@ -18,13 +20,24 @@ const PROVIDER_ENV: Record<string, { label: string; vars: string[] }> = {
   ollama: { label: 'Ollama',        vars: ['OLLAMA_URL (optional)'] },
 }
 
-export function SettingsModal({ open, settings, onClose, onSave }: Props) {
+export function SettingsModal({ open, settings, identity, onClose, onSave, onNameChange }: Props) {
   const [provider, setProvider] = useState(settings.llmProvider || 'azure')
   const [loading, setLoading] = useState(false)
+  const [nameVal, setNameVal] = useState(identity?.name || '')
+  const [nameToast, setNameToast] = useState('')
 
   useEffect(() => {
     setProvider(settings.llmProvider || 'azure')
   }, [settings])
+
+  useEffect(() => {
+    setNameVal(identity?.name || '')
+  }, [identity])
+
+  const onToastLocal = (msg: string) => {
+    setNameToast(msg)
+    setTimeout(() => setNameToast(''), 2000)
+  }
 
   const handleSave = async () => {
     setLoading(true)
@@ -42,6 +55,24 @@ export function SettingsModal({ open, settings, onClose, onSave }: Props) {
         </DialogHeader>
 
         <div className="space-y-5 py-2">
+          {/* Your Name */}
+          <section className="space-y-2">
+            <h4 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Your Name</h4>
+            <div className="flex gap-2">
+              <input
+                className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary/60"
+                value={nameVal}
+                onChange={e => setNameVal(e.target.value)}
+                placeholder="Your name"
+              />
+              <Button size="sm" variant="outline" onClick={() => { onNameChange(nameVal); onToastLocal('Name updated') }}>
+                Save
+              </Button>
+            </div>
+            {nameToast && <p className="text-[11px] text-green-500">{nameToast}</p>}
+            <p className="text-[11px] text-muted-foreground">Used to identify your meetings and templates.</p>
+          </section>
+
           {/* Provider selector */}
           <section className="space-y-2">
             <h4 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">

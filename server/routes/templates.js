@@ -14,7 +14,9 @@ router.get('/', async (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const { name = 'New Template', meeting_context = '' } = req.body;
-    const template = await createTemplate(name, meeting_context);
+    const createdById = req.headers['x-user-id'] || null;
+    const createdByName = req.headers['x-user-name'] || null;
+    const template = await createTemplate(name, meeting_context, createdById, createdByName);
     res.json({ template });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -33,8 +35,8 @@ router.get('/:id', async (req, res) => {
 
 router.put('/:id', async (req, res) => {
   try {
-    const { name, meeting_context, sections } = req.body;
-    const template = await updateTemplate(req.params.id, name, meeting_context, sections || []);
+    const { name, prompt } = req.body;
+    const template = await updateTemplate(req.params.id, name, prompt);
     res.json({ template });
   } catch (err) {
     res.status(500).json({ error: err.message });

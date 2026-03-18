@@ -15,7 +15,7 @@ function applyNames(transcript, speakerNames) {
   }
   return result;
 }
-const { summarize, summarizeStream } = require('../services/summarizer');
+const { summarize, summarizeStream, summarizeWithTemplate } = require('../services/summarizer');
 
 const router = express.Router();
 
@@ -47,27 +47,25 @@ router.post('/', async (req, res) => {
   }
 
   try {
-    // Build extra instructions from templateId, custom prompt, or built-in template
-    let extraInstructions = '';
+    const settings = await getSettings();
+    const transcript = applyNames(meeting.transcript, meeting.speakerNames);
+
+    let summary;
     if (templateId) {
       const { getTemplate } = require('../db/queries');
       const tmpl = await getTemplate(templateId);
-      if (tmpl) {
-        const sectionsText = (tmpl.sections || [])
-          .map(s => `**${s.title}**\n${s.prompt}`)
-          .join('\n\n');
-        extraInstructions = `Meeting Context:\n${tmpl.meeting_context}\n\nExtract these specific sections:\n\n${sectionsText}\n\nIn your JSON response, include a "customSections" array: [{"title":"...","content":"..."}] with one entry per section above.`;
+      if (!tmpl) return res.status(404).json({ error: 'Template not found' });
+      summary = await summarizeWithTemplate(transcript, tmpl, settings);
+    } else {
+      let extraInstructions = '';
+      if (customPrompt) {
+        extraInstructions = customPrompt;
+      } else if (template && TEMPLATES[template]) {
+        extraInstructions = TEMPLATES[template];
       }
-    } else if (customPrompt) {
-      extraInstructions = customPrompt;
-    } else if (template && TEMPLATES[template]) {
-      extraInstructions = TEMPLATES[template];
+      summary = await summarize(transcript, extraInstructions, settings);
     }
 
-    const settings = await getSettings();
-    // Apply speaker name mapping before summarizing (if names have been set)
-    const transcript = applyNames(meeting.transcript, meeting.speakerNames);
-    const summary = await summarize(transcript, extraInstructions, settings);
     await updateSummary(meetingId, summary);
 
     res.json({ meetingId, summary });

@@ -4,12 +4,50 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Finrep Meeting Intelligence — Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
+    :root {
+      --background: #09090f;
+      --foreground: #f1f1f5;
+      --card: #111120;
+      --card-foreground: #f1f1f5;
+      --card-hover: #16162a;
+      --popover: #111120;
+      --popover-foreground: #f1f1f5;
+      --primary: #6366f1;
+      --primary-foreground: #ffffff;
+      --primary-hover: #5558e8;
+      --secondary: #1c1c32;
+      --secondary-foreground: #a1a1c4;
+      --secondary-hover: #242442;
+      --muted: #16162a;
+      --muted-foreground: #6b7080;
+      --accent: #2d2d55;
+      --accent-foreground: #c4c4f0;
+      --destructive: #dc2626;
+      --destructive-hover: #b91c1c;
+      --destructive-foreground: #ffffff;
+      --border: #1e1e38;
+      --border-strong: #2a2a4a;
+      --input: #1a1a30;
+      --ring: #6366f1;
+      --sidebar-bg: #0d0d1e;
+      --radius: 0.5rem;
+      --radius-sm: 0.375rem;
+      --radius-lg: 0.75rem;
+      --shadow-sm: 0 1px 3px rgba(0,0,0,0.4);
+      --shadow-md: 0 4px 16px rgba(0,0,0,0.5);
+      --shadow-lg: 0 8px 32px rgba(0,0,0,0.6);
+    }
+
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #0f0f1a;
-      color: #e0e0e0;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      letter-spacing: -0.01em;
+      background: var(--background);
+      color: var(--foreground);
       min-height: 100vh;
     }
 
@@ -26,8 +64,9 @@
     @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 
     .header {
-      background: #1a1a2e;
-      border-bottom: 1px solid #2a2a4a;
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(12px);
       padding: 16px 24px;
       display: flex;
       align-items: center;
@@ -36,56 +75,59 @@
       top: 0;
       z-index: 100;
     }
-    .header h1 { font-size: 18px; color: #a0a0ff; font-weight: 600; }
+    .header h1 { font-size: 18px; color: var(--accent-foreground); font-weight: 600; }
     .header-actions { display: flex; gap: 12px; align-items: center; }
     .search-box {
       padding: 8px 14px;
-      background: #2a2a4a;
-      border: 1px solid #3a3a5a;
+      background: var(--input);
+      border: 1px solid var(--border);
       border-radius: 6px;
-      color: #e0e0e0;
+      color: var(--foreground);
       font-size: 13px;
       width: 280px;
       outline: none;
-      transition: border-color 0.2s;
+      transition: border-color 0.2s, box-shadow 0.2s;
     }
-    .search-box:focus { border-color: #4a4aff; }
-    .search-box::placeholder { color: #666; }
+    .search-box:focus { border-color: var(--ring); box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 25%, transparent); }
+    .search-box::placeholder { color: var(--muted-foreground); }
     .filter-select {
       padding: 8px 12px;
-      background: #2a2a4a;
-      border: 1px solid #3a3a5a;
+      background: var(--input);
+      border: 1px solid var(--border);
       border-radius: 6px;
-      color: #e0e0e0;
+      color: var(--foreground);
       font-size: 13px;
       outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
     }
+    .filter-select:focus { border-color: var(--ring); box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 25%, transparent); }
     .btn {
       padding: 8px 16px;
       border: none;
       border-radius: 6px;
       font-size: 13px;
       cursor: pointer;
-      transition: background 0.2s, transform 0.1s;
+      transition: background 0.2s, transform 0.1s, box-shadow 0.15s;
     }
     .btn:active { transform: scale(0.97); }
-    .btn-primary { background: #4a4aff; color: white; }
-    .btn-primary:hover { background: #5c5cff; }
-    .btn-secondary { background: #2a2a4a; color: #ccc; border: 1px solid #3a3a5a; }
-    .btn-secondary:hover { background: #3a3a5a; }
+    .btn-primary { background: var(--primary); color: var(--primary-foreground); box-shadow: 0 0 0 0 var(--ring); }
+    .btn-primary:hover { background: var(--primary-hover); }
+    .btn-primary:focus-visible { box-shadow: 0 0 0 2px var(--ring); outline: none; }
+    .btn-secondary { background: var(--secondary); color: var(--secondary-foreground); border: 1px solid var(--border-strong); }
+    .btn-secondary:hover { background: var(--secondary-hover); }
     .btn-sm { padding: 5px 10px; font-size: 12px; }
-    .btn-danger { background: #8b2020; color: white; }
-    .btn-danger:hover { background: #a02828; }
-    .btn-icon { background: none; border: none; color: #888; cursor: pointer; padding: 4px 8px; font-size: 16px; transition: color 0.2s; }
-    .btn-icon:hover { color: #e0e0e0; }
+    .btn-danger { background: var(--destructive); color: var(--destructive-foreground); }
+    .btn-danger:hover { background: var(--destructive-hover); }
+    .btn-icon { background: none; border: none; color: var(--muted-foreground); cursor: pointer; padding: 4px 8px; font-size: 16px; transition: color 0.2s; }
+    .btn-icon:hover { color: var(--foreground); }
     .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
     .main { display: flex; height: calc(100vh - 57px); }
     .sidebar {
       width: 380px;
       min-width: 380px;
-      background: #1a1a2e;
-      border-right: 1px solid #2a2a4a;
+      background: var(--sidebar-bg);
+      border-right: 1px solid var(--border);
       overflow-y: auto;
       flex-shrink: 0;
     }
@@ -97,16 +139,16 @@
 
     .meeting-item {
       padding: 14px 18px;
-      border-bottom: 1px solid #22224a;
+      border-bottom: 1px solid var(--border);
       cursor: pointer;
       transition: background 0.15s, border-left 0.15s;
     }
-    .meeting-item:hover { background: #22224a; }
-    .meeting-item.active { background: #2a2a5a; border-left: 3px solid #4a4aff; }
+    .meeting-item:hover { background: color-mix(in srgb, var(--secondary) 60%, transparent); }
+    .meeting-item.active { background: var(--secondary); border-left: 3px solid var(--primary); }
     .meeting-item .title {
       font-size: 14px;
       font-weight: 500;
-      color: #e0e0ff;
+      color: var(--foreground);
       margin-bottom: 4px;
       white-space: nowrap;
       overflow: hidden;
@@ -114,7 +156,7 @@
     }
     .meeting-item .meta {
       font-size: 11px;
-      color: #777;
+      color: var(--muted-foreground);
       display: flex;
       gap: 12px;
       align-items: center;
@@ -122,8 +164,8 @@
     .meeting-item .meta .badge {
       padding: 2px 6px;
       border-radius: 3px;
-      background: #2a2a4a;
-      color: #aaa;
+      background: var(--accent);
+      color: var(--accent-foreground);
       font-size: 10px;
       text-transform: uppercase;
     }
@@ -134,7 +176,7 @@
       align-items: center;
       justify-content: center;
       height: 100%;
-      color: #555;
+      color: color-mix(in srgb, var(--muted-foreground) 70%, transparent);
     }
     .empty-state p { font-size: 14px; margin-top: 12px; }
 
@@ -148,7 +190,7 @@
     .detail-title {
       font-size: 22px;
       font-weight: 600;
-      color: #e0e0ff;
+      color: var(--foreground);
       cursor: pointer;
       border: 1px solid transparent;
       border-radius: 4px;
@@ -156,13 +198,13 @@
       margin: -2px -6px;
       transition: border-color 0.2s, background 0.2s;
     }
-    .detail-title:hover { border-color: #3a3a5a; background: #1a1a2e; }
+    .detail-title:hover { border-color: var(--border-strong); background: var(--card); }
     .detail-title-input {
       font-size: 22px;
       font-weight: 600;
-      color: #e0e0ff;
-      background: #1a1a2e;
-      border: 1px solid #4a4aff;
+      color: var(--foreground);
+      background: var(--card);
+      border: 1px solid var(--primary);
       border-radius: 4px;
       padding: 2px 6px;
       margin: -2px -6px;
@@ -171,7 +213,7 @@
     }
     .detail-meta {
       font-size: 12px;
-      color: #777;
+      color: var(--muted-foreground);
       margin-top: 6px;
       display: flex;
       gap: 16px;
@@ -182,26 +224,26 @@
       display: flex;
       gap: 4px;
       margin-bottom: 20px;
-      border-bottom: 1px solid #2a2a4a;
+      border-bottom: 1px solid var(--border);
     }
     .tab {
       padding: 10px 18px;
       font-size: 13px;
-      color: #888;
+      color: var(--muted-foreground);
       cursor: pointer;
       border-bottom: 2px solid transparent;
       transition: color 0.2s, border-color 0.2s;
     }
-    .tab:hover { color: #ccc; }
-    .tab.active { color: #a0a0ff; border-bottom-color: #4a4aff; }
+    .tab:hover { color: var(--secondary-foreground); }
+    .tab.active { color: var(--primary); border-bottom-color: var(--primary); }
 
     .tab-content { display: none; opacity: 0; transition: opacity 0.2s; }
     .tab-content.active { display: block; opacity: 1; }
 
     .transcript-box {
-      background: #1a1a2e;
-      border: 1px solid #2a2a4a;
-      border-radius: 8px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
       padding: 20px;
       font-size: 13px;
       line-height: 1.7;
@@ -209,10 +251,13 @@
       word-wrap: break-word;
       max-height: calc(100vh - 300px);
       overflow-y: auto;
-      color: #ccc;
+      color: var(--secondary-foreground);
     }
-    .transcript-box .speaker { color: #a0a0ff; font-weight: 500; }
-    .transcript-box .timestamp { color: #666; font-size: 11px; }
+    .transcript-box .speaker { color: var(--accent-foreground); font-weight: 500; }
+    .transcript-box .timestamp {
+      color: var(--muted-foreground); font-size: 11px; cursor: pointer; text-decoration: underline dotted;
+    }
+    .transcript-box .timestamp:hover { color: var(--primary); }
 
     .transcript-pagination {
       display: flex;
@@ -221,14 +266,14 @@
       gap: 12px;
       padding: 12px 0;
       font-size: 13px;
-      color: #888;
+      color: var(--muted-foreground);
     }
     .transcript-pagination button { min-width: 80px; }
 
     .summary-card {
-      background: #1a1a2e;
-      border: 1px solid #2a2a4a;
-      border-radius: 8px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
       padding: 20px;
       margin-bottom: 16px;
       transition: border-color 0.2s;
@@ -236,7 +281,7 @@
     .summary-card h3 {
       font-size: 12px;
       text-transform: uppercase;
-      color: #888;
+      color: var(--muted-foreground);
       margin-bottom: 8px;
       letter-spacing: 0.5px;
       display: flex;
@@ -246,10 +291,10 @@
     .summary-card p, .summary-card li {
       font-size: 13px;
       line-height: 1.6;
-      color: #ccc;
+      color: var(--secondary-foreground);
     }
     .summary-card ul { list-style: none; padding: 0; }
-    .summary-card li::before { content: "\2022 "; color: #4a4aff; }
+    .summary-card li::before { content: "\2022 "; color: var(--primary); }
 
     /* Editable summary */
     .summary-editable {
@@ -257,7 +302,7 @@
       border: 1px solid transparent;
       border-radius: 4px;
       padding: 4px;
-      color: #ccc;
+      color: var(--secondary-foreground);
       font-size: 13px;
       line-height: 1.6;
       width: 100%;
@@ -266,15 +311,15 @@
       font-family: inherit;
       transition: border-color 0.2s, background 0.2s;
     }
-    .summary-editable:hover { border-color: #3a3a5a; }
-    .summary-editable:focus { border-color: #4a4aff; background: #12122a; outline: none; }
+    .summary-editable:hover { border-color: var(--border-strong); }
+    .summary-editable:focus { border-color: var(--primary); background: var(--muted); outline: none; }
 
     .summary-list-editable {
       background: transparent;
       border: 1px solid transparent;
       border-radius: 4px;
       padding: 4px;
-      color: #ccc;
+      color: var(--secondary-foreground);
       font-size: 13px;
       line-height: 1.8;
       width: 100%;
@@ -283,35 +328,64 @@
       font-family: inherit;
       transition: border-color 0.2s, background 0.2s;
     }
-    .summary-list-editable:hover { border-color: #3a3a5a; }
-    .summary-list-editable:focus { border-color: #4a4aff; background: #12122a; outline: none; }
+    .summary-list-editable:hover { border-color: var(--border-strong); }
+    .summary-list-editable:focus { border-color: var(--primary); background: var(--muted); outline: none; }
 
-    .audio-player { width: 100%; margin: 16px 0; border-radius: 8px; }
-    audio { width: 100%; height: 40px; }
+    .audio-player {
+      width: 100%; margin: 16px 0;
+      background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-lg);
+      padding: 10px 14px; display: flex; align-items: center; gap: 10px; box-sizing: border-box;
+    }
+    audio { display: none; }
+    .ap-btn {
+      background: none; border: none; color: var(--accent-foreground); cursor: pointer;
+      font-size: 18px; padding: 0; line-height: 1; flex-shrink: 0;
+    }
+    .ap-btn:hover { color: var(--foreground); }
+    .ap-time { font-size: 11px; color: var(--secondary-foreground); white-space: nowrap; min-width: 40px; }
+    .ap-seek {
+      flex: 1; -webkit-appearance: none; appearance: none;
+      height: 5px; border-radius: 3px; cursor: pointer; outline: none; border: none;
+      background: linear-gradient(to right, var(--primary) 0%, var(--primary) 0%, var(--border-strong) 0%, var(--border-strong) 100%);
+    }
+    .ap-seek::-webkit-slider-thumb {
+      -webkit-appearance: none; appearance: none;
+      width: 14px; height: 14px; border-radius: 50%;
+      background: var(--primary-foreground); cursor: pointer;
+      box-shadow: 0 0 4px color-mix(in srgb, var(--primary) 90%, transparent);
+    }
+    .ap-seek::-moz-range-thumb {
+      width: 14px; height: 14px; border-radius: 50%; border: none;
+      background: var(--primary-foreground); cursor: pointer;
+      box-shadow: 0 0 4px color-mix(in srgb, var(--primary) 90%, transparent);
+    }
+    .ap-seek::-webkit-slider-runnable-track { border-radius: 3px; }
+    .ap-vol { font-size: 14px; color: var(--secondary-foreground); cursor: pointer; flex-shrink: 0; }
+    .ap-vol:hover { color: var(--foreground); }
 
     /* Summarize controls */
     .summarize-controls {
-      background: #1a1a2e;
-      border: 1px solid #2a2a4a;
-      border-radius: 8px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
       padding: 16px;
       margin-bottom: 16px;
     }
-    .summarize-controls label { font-size: 12px; color: #888; display: block; margin-bottom: 4px; }
+    .summarize-controls label { font-size: 12px; color: var(--muted-foreground); display: block; margin-bottom: 4px; }
     .summarize-controls select, .summarize-controls textarea {
       width: 100%;
       padding: 8px 12px;
-      background: #2a2a4a;
-      border: 1px solid #3a3a5a;
+      background: var(--input);
+      border: 1px solid var(--border-strong);
       border-radius: 6px;
-      color: #e0e0e0;
+      color: var(--foreground);
       font-size: 13px;
       font-family: inherit;
       margin-bottom: 10px;
       outline: none;
-      transition: border-color 0.2s;
+      transition: border-color 0.2s, box-shadow 0.2s;
     }
-    .summarize-controls select:focus, .summarize-controls textarea:focus { border-color: #4a4aff; }
+    .summarize-controls select:focus, .summarize-controls textarea:focus { border-color: var(--ring); box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 25%, transparent); }
     .summarize-controls textarea { resize: vertical; min-height: 60px; }
     .summarize-row { display: flex; gap: 10px; align-items: flex-end; }
     .summarize-row > div { flex: 1; }
@@ -322,13 +396,13 @@
       align-items: center;
       gap: 6px;
       font-size: 12px;
-      color: #4a4aff;
+      color: var(--primary);
       animation: pulse 1.5s ease-in-out infinite;
     }
     .streaming-dot {
       width: 8px;
       height: 8px;
-      background: #4a4aff;
+      background: var(--primary);
       border-radius: 50%;
       animation: pulse 1s ease-in-out infinite;
     }
@@ -338,7 +412,8 @@
       display: none;
       position: fixed;
       top: 0; left: 0; right: 0; bottom: 0;
-      background: rgba(0,0,0,0.7);
+      background: rgba(0,0,0,0.75);
+      backdrop-filter: blur(4px);
       z-index: 200;
       align-items: center;
       justify-content: center;
@@ -347,9 +422,10 @@
     }
     .modal-overlay.active { display: flex; opacity: 1; }
     .modal {
-      background: #1a1a2e;
-      border: 1px solid #3a3a5a;
-      border-radius: 12px;
+      background: var(--card);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-lg);
       padding: 28px;
       width: 500px;
       max-width: 90vw;
@@ -359,24 +435,24 @@
       transition: transform 0.2s;
     }
     .modal-overlay.active .modal { transform: scale(1); }
-    .modal h2 { font-size: 18px; color: #e0e0ff; margin-bottom: 16px; }
-    .modal label { font-size: 13px; color: #aaa; display: block; margin-bottom: 6px; }
+    .modal h2 { font-size: 18px; color: var(--foreground); margin-bottom: 16px; }
+    .modal label { font-size: 13px; color: var(--secondary-foreground); display: block; margin-bottom: 6px; }
     .modal input[type="file"] {
       width: 100%;
       padding: 10px;
-      background: #2a2a4a;
-      border: 1px dashed #4a4aff;
+      background: var(--input);
+      border: 1px dashed var(--primary);
       border-radius: 6px;
-      color: #ccc;
+      color: var(--secondary-foreground);
       margin-bottom: 14px;
     }
     .modal input[type="text"], .modal select, .modal textarea {
       width: 100%;
       padding: 8px 12px;
-      background: #2a2a4a;
-      border: 1px solid #3a3a5a;
+      background: var(--input);
+      border: 1px solid var(--border-strong);
       border-radius: 6px;
-      color: #e0e0e0;
+      color: var(--foreground);
       font-size: 13px;
       margin-bottom: 14px;
       font-family: inherit;
@@ -386,24 +462,24 @@
 
     /* Settings sections */
     .settings-section { margin-bottom: 20px; }
-    .settings-section h3 { font-size: 14px; color: #a0a0ff; margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid #2a2a4a; }
+    .settings-section h3 { font-size: 14px; color: var(--accent-foreground); margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
     .settings-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; }
-    .settings-row label { font-size: 13px; color: #ccc; flex: 1; }
+    .settings-row label { font-size: 13px; color: var(--secondary-foreground); flex: 1; }
     .settings-row input, .settings-row select { width: 200px; }
 
     .stats-bar {
       padding: 10px 18px;
-      background: #16162a;
-      border-bottom: 1px solid #22224a;
+      background: var(--muted);
+      border-bottom: 1px solid var(--border);
       font-size: 12px;
-      color: #666;
+      color: var(--muted-foreground);
       display: flex;
       gap: 20px;
     }
-    .stats-bar span { color: #999; }
+    .stats-bar span { color: var(--secondary-foreground); }
 
     .no-transcript {
-      color: #555;
+      color: color-mix(in srgb, var(--muted-foreground) 70%, transparent);
       font-style: italic;
       text-align: center;
       padding: 40px;
@@ -426,23 +502,23 @@
       color: white;
       min-width: 280px;
       max-width: 420px;
-      box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+      box-shadow: var(--shadow-md);
       animation: toastIn 0.3s ease-out;
       display: flex;
       align-items: center;
       gap: 10px;
     }
     .toast.toast-exit { animation: toastOut 0.3s ease-in forwards; }
-    .toast-success { background: #1a6b3a; border: 1px solid #2a8b4a; }
-    .toast-error { background: #7a1a1a; border: 1px solid #9a2a2a; }
-    .toast-info { background: #1a3a6b; border: 1px solid #2a4a8b; }
+    .toast-success { background: #14532d; border: 1px solid #16a34a; }
+    .toast-error { background: #450a0a; border: 1px solid var(--destructive); }
+    .toast-info { background: #1e3a5f; border: 1px solid #3b82f6; }
     .toast-close { background: none; border: none; color: rgba(255,255,255,0.7); cursor: pointer; font-size: 16px; margin-left: auto; }
     .toast-close:hover { color: white; }
 
     /* Copy feedback */
     .copy-feedback {
       font-size: 11px;
-      color: #4a4aff;
+      color: var(--primary);
       opacity: 0;
       transition: opacity 0.2s;
     }
@@ -450,8 +526,8 @@
 
     /* Scrollbar */
     ::-webkit-scrollbar { width: 6px; }
-    ::-webkit-scrollbar-track { background: #0f0f1a; }
-    ::-webkit-scrollbar-thumb { background: #3a3a5a; border-radius: 3px; }
+    ::-webkit-scrollbar-track { background: var(--background); }
+    ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
 
     /* ---- Analytics Panel ---- */
     #analytics-panel {
@@ -461,7 +537,7 @@
       height: 100%;
     }
     #analytics-panel.active { display: block; }
-    .analytics-header { font-size: 18px; font-weight: 600; color: #a0a0ff; margin-bottom: 20px; }
+    .analytics-header { font-size: 18px; font-weight: 600; color: var(--accent-foreground); margin-bottom: 20px; }
     .stat-cards {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
@@ -469,14 +545,15 @@
       margin-bottom: 28px;
     }
     .stat-card {
-      background: #1a1a2e;
-      border: 1px solid #2a2a4a;
-      border-radius: 10px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-sm);
       padding: 16px;
       text-align: center;
     }
-    .stat-card .stat-value { font-size: 28px; font-weight: 700; color: #a0a0ff; }
-    .stat-card .stat-label { font-size: 11px; color: #888; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .stat-card .stat-value { font-size: 28px; font-weight: 700; color: var(--primary); }
+    .stat-card .stat-label { font-size: 11px; color: var(--muted-foreground); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
     .chart-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -485,23 +562,23 @@
     }
     @media (max-width: 900px) { .chart-grid { grid-template-columns: 1fr; } }
     .chart-card {
-      background: #1a1a2e;
-      border: 1px solid #2a2a4a;
-      border-radius: 10px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
       padding: 18px;
     }
-    .chart-card h3 { font-size: 13px; color: #ccc; margin-bottom: 14px; }
+    .chart-card h3 { font-size: 13px; color: var(--secondary-foreground); margin-bottom: 14px; }
     .chart-card canvas { max-height: 220px; }
     .participants-list { list-style: none; }
     .participants-list li {
       display: flex;
       justify-content: space-between;
       padding: 5px 0;
-      border-bottom: 1px solid #1e1e35;
+      border-bottom: 1px solid var(--border);
       font-size: 13px;
-      color: #ccc;
+      color: var(--secondary-foreground);
     }
-    .participants-list li span.count { color: #a0a0ff; font-weight: 600; }
+    .participants-list li span.count { color: var(--accent-foreground); font-weight: 600; }
   </style>
 </head>
 <body>
@@ -960,8 +1037,13 @@
         </div>
 
         ${m.audio_path ? `
-          <div class="audio-player fade-in">
-            <audio controls preload="metadata" src="${API}/meetings/${m.id}/audio"></audio>
+          <div class="audio-player fade-in" id="ap-${m.id}" data-duration="${m.duration_seconds || 0}">
+            <audio preload="metadata" src="${API}/meetings/${m.id}/audio"></audio>
+            <button class="ap-btn ap-play" title="Play / Pause">&#9654;</button>
+            <span class="ap-time ap-cur">0:00</span>
+            <input class="ap-seek" type="range" min="0" max="1000" value="0" step="1">
+            <span class="ap-time ap-dur">--:--</span>
+            <span class="ap-vol" title="Mute / Unmute">&#128266;</span>
           </div>
         ` : ''}
 
@@ -1033,6 +1115,113 @@
           detail.querySelector(`.tab-content[data-tab="${tab.dataset.tab}"]`).classList.add('active');
         });
       });
+
+      // Init custom audio player
+      const apEl = detail.querySelector('.audio-player');
+      if (apEl) initAudioPlayer(apEl);
+    }
+
+    function initAudioPlayer(el) {
+      const audio = el.querySelector('audio');
+      const playBtn = el.querySelector('.ap-play');
+      const curEl = el.querySelector('.ap-cur');
+      const durEl = el.querySelector('.ap-dur');
+      const seekRange = el.querySelector('.ap-seek');
+      const volBtn = el.querySelector('.ap-vol');
+
+      // knownDuration: prefer audio.duration when finite (non-WebM files),
+      // fall back to DB-stored duration_seconds (always available for WebM).
+      function knownDuration() {
+        const d = audio.duration;
+        return (isFinite(d) && d > 0) ? d : parseFloat(el.dataset.duration || 0);
+      }
+
+      function fmt(s) {
+        if (!s || isNaN(s)) return '0:00';
+        const h = Math.floor(s / 3600);
+        const m = Math.floor((s % 3600) / 60);
+        const sec = Math.floor(s % 60);
+        return h > 0
+          ? `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`
+          : `${m}:${String(sec).padStart(2,'0')}`;
+      }
+
+      function updateSeekBackground() {
+        const pct = seekRange.max > 0 ? (seekRange.value / seekRange.max * 100) : 0;
+        seekRange.style.background =
+          `linear-gradient(to right, #6060ff ${pct}%, #3a3a5a ${pct}%)`;
+      }
+
+      // Show duration immediately from DB value; update if audio provides a better one
+      durEl.textContent = fmt(knownDuration());
+      audio.addEventListener('loadedmetadata', () => { durEl.textContent = fmt(knownDuration()); });
+      audio.addEventListener('durationchange',  () => { durEl.textContent = fmt(knownDuration()); });
+
+      // While playing: sync slider → audio (only when user is not dragging)
+      let userSeeking = false;
+      audio.addEventListener('timeupdate', () => {
+        curEl.textContent = fmt(audio.currentTime);
+        if (!userSeeking) {
+          const dur = knownDuration();
+          if (dur > 0) {
+            seekRange.value = Math.round((audio.currentTime / dur) * 1000);
+            updateSeekBackground();
+          }
+        }
+      });
+
+      audio.addEventListener('play',  () => { playBtn.innerHTML = '&#9646;&#9646;'; });
+      audio.addEventListener('pause', () => { playBtn.innerHTML = '&#9654;'; });
+      audio.addEventListener('ended', () => {
+        playBtn.innerHTML = '&#9654;';
+        seekRange.value = 0;
+        updateSeekBackground();
+      });
+
+      playBtn.addEventListener('click', () => { audio.paused ? audio.play() : audio.pause(); });
+
+      // Drag: update display text live; commit seek on release
+      seekRange.addEventListener('mousedown', () => { userSeeking = true; });
+      seekRange.addEventListener('input', () => {
+        updateSeekBackground();
+        const dur = knownDuration();
+        if (dur > 0) curEl.textContent = fmt((seekRange.value / 1000) * dur);
+      });
+
+      function commitSeek() {
+        userSeeking = false;
+        const dur = knownDuration();
+        if (dur > 0) audio.currentTime = (seekRange.value / 1000) * dur;
+      }
+      seekRange.addEventListener('mouseup', commitSeek);
+      seekRange.addEventListener('change',  commitSeek); // keyboard arrows + touch
+
+      volBtn.addEventListener('click', () => {
+        audio.muted = !audio.muted;
+        volBtn.innerHTML = audio.muted ? '&#128263;' : '&#128266;';
+      });
+
+      // Timestamp click-to-seek: delegate on the nearest transcript box
+      const detail = el.closest('#meeting-detail');
+      if (detail) {
+        detail.addEventListener('click', (e) => {
+          const ts = e.target.closest('.timestamp');
+          if (!ts) return;
+          // Parse [M:SS], [MM:SS], or [H:MM:SS]
+          const match = ts.textContent.match(/\[(\d+):(\d+)(?::(\d+))?\]/);
+          if (!match) return;
+          const secs = match[3] !== undefined
+            ? parseInt(match[1]) * 3600 + parseInt(match[2]) * 60 + parseInt(match[3])
+            : parseInt(match[1]) * 60 + parseInt(match[2]);
+          audio.currentTime = secs;
+          seekRange.value = Math.round((secs / Math.max(knownDuration(), secs + 1)) * 1000);
+          updateSeekBackground();
+          curEl.textContent = fmt(secs);
+          if (audio.paused) audio.play();
+        });
+      }
+
+      updateSeekBackground();
     }
 
     // ---- Editable Title (Feature 2) ----
@@ -1161,9 +1350,9 @@
         const speakerNames = currentMeeting?.speakerNames || {};
         return escapeHtml(line)
           .replace(/^(\[[\d:]+\])/g, '<span class="timestamp">$1</span>')
-          .replace(/(SPEAKER_\d+):/g, (match, label) => {
+          .replace(/((?:<\/span>\s*)|^)(SPEAKER_\d+|\d+):/g, (match, prefix, label) => {
             const name = speakerNames[label];
-            return `<span class="speaker">${name ? escapeHtml(name) : label}:</span>`;
+            return `${prefix}<span class="speaker">${name ? escapeHtml(name) : label}:</span>`;
           });
       }).join('\n');
 
@@ -1327,10 +1516,11 @@
         return;
       }
 
-      // Extract unique SPEAKER_X labels from transcript
-      const labels = [...new Set((meeting.transcript.match(/SPEAKER_\d+/g) || []))].sort();
+      // Extract unique speaker labels from transcript (supports both SPEAKER_X and numeric formats)
+      const speakerMatches = [...meeting.transcript.matchAll(/\[[\d:]+\]\s+(SPEAKER_\d+|\d+):/g)];
+      const labels = [...new Set(speakerMatches.map(m => m[1]))].sort();
       if (labels.length === 0) {
-        toast('No SPEAKER_X labels found in transcript. Diarization may not have run.', 'info');
+        toast('No speaker labels found in transcript. Diarization may not have run.', 'info');
         return;
       }
 
@@ -1395,8 +1585,18 @@
         const idx = meetings.findIndex(m => m.id === speakerMappingId);
         if (idx !== -1) meetings[idx].speakerNames = speakerNames;
 
+        // If this is the currently viewed meeting, update display immediately
+        if (currentMeeting && currentMeeting.id === speakerMappingId) {
+          currentMeeting.speakerNames = speakerNames;
+          const box = document.getElementById('transcript-box-main');
+          if (box && currentMeeting.transcript) {
+            const result = formatTranscriptPaginated(currentMeeting.transcript, transcriptPage);
+            box.innerHTML = result.html;
+          }
+        }
+
         closeModal('speaker-modal');
-        toast('Speaker names saved. Re-summarize to apply them.', 'success');
+        toast('Speaker names saved and applied to transcript.', 'success');
       } catch (err) {
         toast('Failed to save: ' + err.message, 'error');
       }

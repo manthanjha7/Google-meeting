@@ -1,7 +1,21 @@
 const BASE = '/api'
 
+function getIdentityHeaders(): Record<string, string> {
+  const id = localStorage.getItem('finrep_user_id')
+  const name = localStorage.getItem('finrep_user_name')
+  const headers: Record<string, string> = {}
+  if (id) headers['X-User-ID'] = id
+  if (name) headers['X-User-Name'] = name
+  return headers
+}
+
 async function req<T>(path: string, opts?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, opts)
+  const identityHeaders = getIdentityHeaders()
+  const existingHeaders = (opts?.headers as Record<string, string>) || {}
+  const res = await fetch(`${BASE}${path}`, {
+    ...opts,
+    headers: { ...identityHeaders, ...existingHeaders },
+  })
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }))
     throw new Error(err.error || res.statusText)
@@ -20,12 +34,16 @@ export const api = {
     get: (id: string) => req<{ meeting: import('./types').Meeting }>(`/meetings/${id}`),
     updateTitle: (id: string, title: string) =>
       req(`/meetings/${id}/title`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title }) }),
+    updateCallType: (id: string, callType: string) =>
+      req<{ meeting: import('./types').Meeting }>(`/meetings/${id}/call-type`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ callType }) }),
     delete: (id: string) => req(`/meetings/${id}`, { method: 'DELETE' }),
     saveSpeakers: (id: string, speakerNames: Record<string, string>) =>
       req<{ meeting: import('./types').Meeting }>(`/meetings/${id}/speakers`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ speakerNames }) }),
     speakerSuggestions: (id: string) => req<{ suggestions: Record<string, string> }>(`/meetings/${id}/speaker-suggestions`),
     updateSummary: (id: string, summary: import('./types').Summary) =>
       req(`/meetings/${id}/summary`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ summary }) }),
+    setVisibility: (id: string, visibility: 'private' | 'team') =>
+      req<{ meeting: import('./types').Meeting }>(`/meetings/${id}/visibility`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ visibility }) }),
     audioUrl: (id: string) => `${BASE}/meetings/${id}/audio`,
     exportUrl: (id: string, format: string) => `${BASE}/meetings/${id}/export/${format}`,
   },

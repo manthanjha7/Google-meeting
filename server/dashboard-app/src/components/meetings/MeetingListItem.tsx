@@ -1,4 +1,4 @@
-import { Clock } from 'lucide-react'
+import { Clock, Lock } from 'lucide-react'
 import { Badge } from '../ui/badge'
 import { cn, fmtDuration, fmtDate, fmtTime } from '../../lib/utils'
 import type { Meeting } from '../../types'
@@ -49,6 +49,11 @@ export function MeetingListItem({ meeting, selected, onClick }: Props) {
           <span className="flex items-center gap-1 text-xs text-muted-foreground">
             <Clock className="h-3 w-3" />
             {duration}
+          </span>
+        )}
+        {meeting.visibility === 'private' && (
+          <span className="flex items-center gap-0.5 text-xs text-muted-foreground/60" title="Private meeting">
+            <Lock className="h-3 w-3" />
           </span>
         )}
       </div>

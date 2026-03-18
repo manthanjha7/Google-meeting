@@ -1,10 +1,11 @@
 const { getDb, saveDb } = require('./schema');
 
-async function createMeeting(id, audioPath, durationSeconds = null, meetTitle = null, meetUrl = null) {
+async function createMeeting(id, audioPath, durationSeconds = null, meetTitle = null, meetUrl = null, userId = null, userName = null) {
   const db = await getDb();
+  const visibility = userId ? 'private' : 'team';
   db.run(
-    `INSERT INTO meetings (id, audio_path, duration_seconds, meet_title, meet_url, title) VALUES (?, ?, ?, ?, ?, ?)`,
-    [id, audioPath, durationSeconds, meetTitle, meetUrl, meetTitle]
+    `INSERT INTO meetings (id, audio_path, duration_seconds, meet_title, meet_url, title, user_id, user_name, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, audioPath, durationSeconds, meetTitle, meetUrl, meetTitle, userId, userName, visibility]
   );
   saveDb();
   return getMeeting(id);
@@ -69,25 +70,29 @@ async function getMeeting(id) {
   return null;
 }
 
-async function listMeetings(callType = null) {
+async function listMeetings(callType = null, userId = null) {
   const db = await getDb();
-  let results = [];
+  const results = [];
+
+  let sql = `SELECT * FROM meetings WHERE (user_id IS NULL OR visibility = 'team'`;
+  const params = [];
+
+  if (userId) {
+    sql += ` OR user_id = ?`;
+    params.push(userId);
+  }
+  sql += `)`;
 
   if (callType) {
-    const stmt = db.prepare('SELECT * FROM meetings WHERE call_type = ? ORDER BY created_at DESC');
-    stmt.bind([callType]);
-    while (stmt.step()) {
-      results.push(parseMeetingRow(stmt.getAsObject()));
-    }
-    stmt.free();
-  } else {
-    const stmt = db.prepare('SELECT * FROM meetings ORDER BY created_at DESC');
-    while (stmt.step()) {
-      results.push(parseMeetingRow(stmt.getAsObject()));
-    }
-    stmt.free();
+    sql += ` AND call_type = ?`;
+    params.push(callType);
   }
+  sql += ` ORDER BY created_at DESC`;
 
+  const stmt = db.prepare(sql);
+  if (params.length) stmt.bind(params);
+  while (stmt.step()) results.push(parseMeetingRow(stmt.getAsObject()));
+  stmt.free();
   return results;
 }
 
@@ -125,6 +130,7 @@ function parseMeetingRow(row) {
     participants: row.participants ? JSON.parse(row.participants) : null,
     speakerNames: row.speaker_names ? JSON.parse(row.speaker_names) : null,
     slackPosted: Boolean(row.slack_posted),
+    visibility: row.visibility || 'team',
   };
 }
 
@@ -238,22 +244,30 @@ async function getTemplate(id) {
   return t;
 }
 
-async function createTemplate(name, meetingContext = '') {
+async function createTemplate(name, meetingContext = '', createdById = null, createdByName = null) {
   const db = await getDb();
   const id = require('crypto').randomUUID();
-  db.run('INSERT INTO summary_templates (id, name, meeting_context) VALUES (?, ?, ?)', [id, name, meetingContext]);
+  db.run(
+    'INSERT INTO summary_templates (id, name, meeting_context, created_by_id, created_by_name) VALUES (?, ?, ?, ?, ?)',
+    [id, name, meetingContext, createdById, createdByName]
+  );
   saveDb();
   return getTemplate(id);
 }
 
-async function updateTemplate(id, name, meetingContext, sections = []) {
+async function shareMeeting(id, visibility) {
   const db = await getDb();
-  db.run("UPDATE summary_templates SET name = ?, meeting_context = ?, updated_at = datetime('now') WHERE id = ?", [name, meetingContext, id]);
-  db.run('DELETE FROM template_sections WHERE template_id = ?', [id]);
-  sections.forEach((sec, i) => {
-    db.run('INSERT INTO template_sections (id, template_id, title, prompt, position) VALUES (?, ?, ?, ?, ?)',
-      [require('crypto').randomUUID(), id, sec.title, sec.prompt || '', i]);
-  });
+  db.run(`UPDATE meetings SET visibility = ?, updated_at = datetime('now') WHERE id = ?`, [visibility, id]);
+  saveDb();
+  return getMeeting(id);
+}
+
+async function updateTemplate(id, name, prompt) {
+  const db = await getDb();
+  db.run(
+    "UPDATE summary_templates SET name = ?, prompt = ?, updated_at = datetime('now') WHERE id = ?",
+    [name, prompt || '', id]
+  );
   saveDb();
   return getTemplate(id);
 }
@@ -276,6 +290,7 @@ module.exports = {
   searchMeetings,
   updateMeetTitle,
   deleteMeeting,
+  shareMeeting,
   getSettings,
   setSetting,
   updateSpeakerNames,

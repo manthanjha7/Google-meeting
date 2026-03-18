@@ -91,37 +91,53 @@ export function SummaryTab({ meeting, onSummarize, onSendSlack }: Props) {
         </Button>
       </div>
 
+      {/* Loading overlay */}
+      {loadingSummarize && (
+        <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-border bg-card/50 py-16">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-sm text-muted-foreground">Generating summary…</p>
+        </div>
+      )}
+
       {/* Summary content */}
-      {summary ? (
+      {!loadingSummarize && summary ? (
         <div className="space-y-4 rounded-lg border border-border bg-card/50 p-4">
           {summary.title && (
             <h3 className="text-base font-semibold text-foreground">{summary.title}</h3>
           )}
-          {summary.summary && (
-            <div className="space-y-1.5">
-              <h4 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Summary</h4>
-              <p className="text-sm text-secondary-foreground leading-relaxed">{summary.summary}</p>
-            </div>
+          {/* Template-based output: show only customSections */}
+          {summary.customSections?.length ? (
+            <>
+              {summary.customSections.map((cs, i) => (
+                <div key={i} className="space-y-1.5">
+                  <h4 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">{cs.title}</h4>
+                  <p className="text-sm text-secondary-foreground leading-relaxed whitespace-pre-line">{cs.content}</p>
+                </div>
+              ))}
+            </>
+          ) : (
+            /* Standard output: show all standard fields */
+            <>
+              {summary.summary && (
+                <div className="space-y-1.5">
+                  <h4 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Summary</h4>
+                  <p className="text-sm text-secondary-foreground leading-relaxed">{summary.summary}</p>
+                </div>
+              )}
+              <SectionList title="Decisions" items={summary.decisions} />
+              <SectionList title="Action Items" items={summary.actionItems} />
+              <SectionList title="Next Steps" items={summary.nextSteps} />
+              <SectionList title="Follow-ups" items={summary.followUps} />
+              <SectionList title="Deadlines" items={summary.deadlines} />
+            </>
           )}
-          <SectionList title="Decisions" items={summary.decisions} />
-          <SectionList title="Action Items" items={summary.actionItems} />
-          <SectionList title="Next Steps" items={summary.nextSteps} />
-          <SectionList title="Follow-ups" items={summary.followUps} />
-          <SectionList title="Deadlines" items={summary.deadlines} />
-          <SectionList title="Participants" items={summary.participants} />
-          {summary.customSections?.map((cs, i) => (
-            <div key={i} className="space-y-1.5">
-              <h4 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">{cs.title}</h4>
-              <p className="text-sm text-secondary-foreground leading-relaxed">{cs.content}</p>
-            </div>
-          ))}
         </div>
-      ) : (
+      ) : !loadingSummarize ? (
         <div className="flex flex-col items-center justify-center h-28 rounded-lg border border-dashed border-border gap-2">
           <p className="text-xs text-muted-foreground">No summary yet</p>
           <p className="text-[10px] text-muted-foreground">Click Summarize to generate one</p>
         </div>
-      )}
+      ) : null}
 
       {/* Slack */}
       <div className="flex items-center gap-2 pt-1 border-t border-border">

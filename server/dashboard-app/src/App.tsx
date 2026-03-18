@@ -10,10 +10,12 @@ import { ImportModal } from './components/modals/ImportModal'
 import { SettingsModal } from './components/modals/SettingsModal'
 import { Toast } from './components/shared/Toast'
 import { EmptyState } from './components/shared/EmptyState'
+import { NameSetup } from './components/shared/NameSetup'
 import { Spinner } from './components/shared/Spinner'
 import { Button } from './components/ui/button'
 import { Settings } from 'lucide-react'
 import { api } from './api'
+import { useIdentity } from './hooks/useIdentity'
 import type { Meeting, Settings as SettingsType, ToastType } from './types'
 
 interface ToastItem {
@@ -25,6 +27,7 @@ interface ToastItem {
 let toastId = 0
 
 export default function App() {
+  const { identity, ready, saveIdentity } = useIdentity()
   const [panel, setPanel] = useState<Panel>('meetings')
   const [meetings, setMeetings] = useState<Meeting[]>([])
   const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null)
@@ -117,6 +120,9 @@ export default function App() {
     addToast('Settings saved', 'success')
   }
 
+  if (!ready) return null
+  if (!identity) return <NameSetup onSave={saveIdentity} />
+
   return (
     <div className="flex h-screen overflow-hidden bg-background text-foreground">
       <Sidebar active={panel} onChange={setPanel} />
@@ -146,6 +152,7 @@ export default function App() {
                 onDeleted={handleMeetingDeleted}
                 onSpeakersOpen={() => setSpeakerModalOpen(true)}
                 onToast={addToast}
+                identity={identity}
               />
             ) : (
               <EmptyState
@@ -159,7 +166,7 @@ export default function App() {
 
       {panel === 'analytics' && <main className="flex-1 overflow-y-auto"><AnalyticsPanel /></main>}
       {panel === 'kb' && <main className="flex-1 overflow-y-auto"><KbPanel /></main>}
-      {panel === 'templates' && <main className="flex-1 overflow-hidden"><TemplatesPanel /></main>}
+      {panel === 'templates' && <main className="flex-1 overflow-hidden"><TemplatesPanel identity={identity} /></main>}
 
       {panel === 'settings' && (
         <main className="flex-1 overflow-y-auto p-6 max-w-xl">
@@ -189,8 +196,10 @@ export default function App() {
       <SettingsModal
         open={settingsModalOpen}
         settings={settings}
+        identity={identity}
         onClose={() => setSettingsModalOpen(false)}
         onSave={handleSaveSettings}
+        onNameChange={saveIdentity}
       />
 
       {/* Toast stack */}

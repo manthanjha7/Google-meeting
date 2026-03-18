@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const archiver = require('archiver');
 const PDFDocument = require('pdfkit');
-const { listMeetings, getMeeting, searchMeetings, updateMeetTitle, updateSummary, deleteMeeting, updateSpeakerNames, getSegments } = require('../db/queries');
+const { listMeetings, getMeeting, searchMeetings, updateMeetTitle, updateSummary, deleteMeeting, updateSpeakerNames, getSegments, updateCallType, shareMeeting } = require('../db/queries');
 const { detectSpeakerNames } = require('../services/summarizer');
 const { getSettings } = require('../db/queries');
 
@@ -19,7 +19,8 @@ router.param('id', (req, res, next, id) => {
 // GET /api/meetings
 router.get('/', async (req, res) => {
   const { callType } = req.query;
-  const meetings = await listMeetings(callType || null);
+  const userId = req.headers['x-user-id'] || null;
+  const meetings = await listMeetings(callType || null, userId);
   res.json({ meetings });
 });
 
@@ -289,6 +290,18 @@ router.get('/:id/audio', async (req, res) => {
   }
 });
 
+// PATCH /api/meetings/:id/call-type — update call type tag
+router.patch('/:id/call-type', async (req, res) => {
+  const { callType } = req.body;
+  const allowed = ['internal', 'customer', 'gtm', 'product'];
+  if (!callType || !allowed.includes(callType)) {
+    return res.status(400).json({ error: `callType must be one of: ${allowed.join(', ')}` });
+  }
+  const meeting = await updateCallType(req.params.id, callType);
+  if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
+  res.json({ meeting });
+});
+
 // PATCH /api/meetings/:id/title — update meeting title
 router.patch('/:id/title', async (req, res) => {
   const { title } = req.body;
@@ -383,6 +396,21 @@ router.get('/:id/download', async (req, res) => {
   }
 
   archive.finalize();
+});
+
+// PATCH /api/meetings/:id/visibility — share or unshare a meeting
+router.patch('/:id/visibility', async (req, res) => {
+  const { visibility } = req.body;
+  if (!['private', 'team'].includes(visibility)) {
+    return res.status(400).json({ error: 'visibility must be "private" or "team"' });
+  }
+  try {
+    const meeting = await shareMeeting(req.params.id, visibility);
+    if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
+    res.json({ meeting });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // GET /api/meetings/:id/segments — returns transcript segments with confidence scores

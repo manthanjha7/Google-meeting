@@ -12,6 +12,14 @@ export interface Meeting {
   segments?: Segment[]
   meet_link?: string
   slack_posted?: boolean
+  visibility?: 'private' | 'team'
+  user_id?: string
+  user_name?: string
+}
+
+export interface UserIdentity {
+  id: string
+  name: string
 }
 
 export interface Summary {
@@ -39,6 +47,8 @@ export interface Template {
   meeting_context: string
   sections: TemplateSection[]
   created_at?: string
+  created_by_id?: string
+  created_by_name?: string
 }
 
 export interface Segment {

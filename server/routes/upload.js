@@ -45,8 +45,10 @@ router.post('/', upload.single('audio'), async (req, res) => {
     : null;
   const meetTitle = req.body.meetTitle || null;
   const meetUrl = req.body.meetUrl || null;
+  const userId = req.headers['x-user-id'] || null;
+  const userName = req.headers['x-user-name'] || null;
 
-  const meeting = await createMeeting(meetingId, req.file.path, durationSeconds, meetTitle, meetUrl);
+  const meeting = await createMeeting(meetingId, req.file.path, durationSeconds, meetTitle, meetUrl, userId, userName);
 
   res.json({
     meetingId: meeting.id,

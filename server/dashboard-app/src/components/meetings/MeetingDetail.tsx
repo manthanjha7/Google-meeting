@@ -1,15 +1,15 @@
-import { useState } from 'react'
-import { Trash2, Edit2, Check, X, RefreshCw, Loader2, Database } from 'lucide-react'
+import { useState, useRef } from 'react'
+import { Trash2, Edit2, Check, X, RefreshCw, Loader2, Database, Lock, Users } from 'lucide-react'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../ui/tabs'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
-import { Badge } from '../ui/badge'
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../ui/select'
 import { AudioPlayer } from './AudioPlayer'
 import { TranscriptTab } from './TranscriptTab'
 import { SummaryTab } from './SummaryTab'
 import { fmtDate, fmtTime, fmtDuration } from '../../lib/utils'
 import { api } from '../../api'
-import type { Meeting } from '../../types'
+import type { Meeting, UserIdentity } from '../../types'
 
 interface Props {
   meeting: Meeting
@@ -17,10 +17,7 @@ interface Props {
   onDeleted: () => void
   onSpeakersOpen: () => void
   onToast: (msg: string, type?: 'success' | 'error' | 'info') => void
-}
-
-const TYPE_COLORS: Record<string, 'default' | 'secondary' | 'success' | 'outline'> = {
-  customer: 'success', gtm: 'default', product: 'secondary', internal: 'outline',
+  identity?: UserIdentity
 }
 
 export function MeetingDetail({ meeting, onUpdated, onDeleted, onSpeakersOpen, onToast }: Props) {
@@ -29,6 +26,7 @@ export function MeetingDetail({ meeting, onUpdated, onDeleted, onSpeakersOpen, o
   const [seekTo, setSeekTo] = useState<{ secs: number; ts: number } | undefined>()
   const [retranscribing, setRetranscribing] = useState(false)
   const [ingestingKb, setIngestingKb] = useState(false)
+  const audioRef = useRef<HTMLAudioElement>(null)
 
   const title = meeting.title || meeting.meet_title || meeting.summary?.title || 'Untitled Meeting'
   const audioUrl = api.meetings.audioUrl(meeting.id)
@@ -106,6 +104,17 @@ export function MeetingDetail({ meeting, onUpdated, onDeleted, onSpeakersOpen, o
     window.open(api.meetings.exportUrl(meeting.id, format), '_blank')
   }
 
+  const handleShareToggle = async () => {
+    const newVisibility = meeting.visibility === 'team' ? 'private' : 'team'
+    try {
+      const result = await api.meetings.setVisibility(meeting.id, newVisibility)
+      onUpdated(result.meeting)
+      onToast(newVisibility === 'team' ? 'Shared with team' : 'Set to private', 'success')
+    } catch {
+      onToast('Failed to update visibility', 'error')
+    }
+  }
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
@@ -137,9 +146,27 @@ export function MeetingDetail({ meeting, onUpdated, onDeleted, onSpeakersOpen, o
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          <Badge variant={TYPE_COLORS[meeting.call_type || 'internal'] || 'outline'} className="capitalize">
-            {meeting.call_type || 'internal'}
-          </Badge>
+          <Select
+            value={meeting.call_type || 'internal'}
+            onValueChange={async (val) => {
+              try {
+                const result = await api.meetings.updateCallType(meeting.id, val)
+                onUpdated(result.meeting)
+              } catch {
+                onToast('Failed to update type', 'error')
+              }
+            }}
+          >
+            <SelectTrigger className="h-6 text-xs w-auto px-2 border-border bg-transparent">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="internal">Internal</SelectItem>
+              <SelectItem value="customer">Customer</SelectItem>
+              <SelectItem value="gtm">GTM</SelectItem>
+              <SelectItem value="product">Product</SelectItem>
+            </SelectContent>
+          </Select>
           <span className="text-xs text-muted-foreground">
             {fmtDate(meeting.created_at)} · {fmtTime(meeting.created_at)}
           </span>
@@ -158,6 +185,17 @@ export function MeetingDetail({ meeting, onUpdated, onDeleted, onSpeakersOpen, o
             {ingestingKb ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Database className="h-3.5 w-3.5" />}
             Add to KB
           </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleShareToggle}
+            title={meeting.visibility === 'team' ? 'Visible to team — click to make private' : 'Private — click to share with team'}
+          >
+            {meeting.visibility === 'team'
+              ? <><Users className="h-3.5 w-3.5" />Shared</>
+              : <><Lock className="h-3.5 w-3.5" />Private</>
+            }
+          </Button>
           <Button variant="outline" size="sm" onClick={() => handleExport('txt')}>Export TXT</Button>
           <Button variant="outline" size="sm" onClick={() => handleExport('json')}>Export JSON</Button>
         </div>
@@ -167,6 +205,7 @@ export function MeetingDetail({ meeting, onUpdated, onDeleted, onSpeakersOpen, o
           src={audioUrl}
           durationSeconds={meeting.duration_seconds}
           seekTo={seekTo}
+          audioRef={audioRef}
         />
       </div>
 
@@ -185,6 +224,7 @@ export function MeetingDetail({ meeting, onUpdated, onDeleted, onSpeakersOpen, o
                 meeting={meeting}
                 onSeek={(secs) => setSeekTo({ secs, ts: Date.now() })}
                 onOpenSpeakers={onSpeakersOpen}
+                audioRef={audioRef}
               />
             </TabsContent>
             <TabsContent value="summary">

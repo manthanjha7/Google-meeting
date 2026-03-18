@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import { ChevronLeft, ChevronRight, Users } from 'lucide-react'
 import { Button } from '../ui/button'
 import { cn, parseTimestamp } from '../../lib/utils'
@@ -8,6 +8,7 @@ interface Props {
   meeting: Meeting
   onSeek: (secs: number) => void
   onOpenSpeakers: () => void
+  audioRef?: React.RefObject<HTMLAudioElement>
 }
 
 const LINES_PER_PAGE = 80
@@ -42,15 +43,29 @@ function parseTranscript(raw: string, speakerNames: Record<string, string>): Tra
       const displayName = speakerNames?.[speaker] || speaker
       lines.push({ speaker, displayName, timestamp: ts, timeSecs: parseTimestamp(ts), text: text.trim() })
     } else if (line.trim()) {
-      lines.push({ speaker: '', displayName: '', timestamp: '', timeSecs: 0, text: line.trim() })
+      lines.push({ speaker: '', displayName: '', timestamp: '', timeSecs: -1, text: line.trim() })
     }
   }
   return lines
 }
 
-export function TranscriptTab({ meeting, onSeek, onOpenSpeakers }: Props) {
+const COL_TEMPLATE = '5.5rem 9rem 1fr'
+const COL_GAP = '0.75rem'
+
+export function TranscriptTab({ meeting, onSeek, onOpenSpeakers, audioRef }: Props) {
   const [page, setPage] = useState(0)
+  const [currentTime, setCurrentTime] = useState(0)
   const colorMap = useMemo(() => new Map<string, string>(), [meeting.id])
+  const activeRowRef = useRef<HTMLDivElement>(null)
+
+  // Subscribe directly to the audio element's timeupdate event
+  useEffect(() => {
+    const audio = audioRef?.current
+    if (!audio) return
+    const handler = () => setCurrentTime(audio.currentTime)
+    audio.addEventListener('timeupdate', handler)
+    return () => audio.removeEventListener('timeupdate', handler)
+  }, [audioRef])
 
   const lines = useMemo(
     () => parseTranscript(meeting.transcript || '', meeting.speakerNames || {}),
@@ -58,7 +73,31 @@ export function TranscriptTab({ meeting, onSeek, onOpenSpeakers }: Props) {
   )
 
   const totalPages = Math.max(1, Math.ceil(lines.length / LINES_PER_PAGE))
+
+  // Last timed line whose timeSecs <= currentTime
+  const activeGlobalIndex = useMemo(() => {
+    if (currentTime <= 0) return -1
+    let idx = -1
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].timestamp && lines[i].timeSecs <= currentTime) idx = i
+    }
+    return idx
+  }, [lines, currentTime])
+
+  // Auto-flip page when active line is on a different page
+  useEffect(() => {
+    if (activeGlobalIndex < 0) return
+    const activePage = Math.floor(activeGlobalIndex / LINES_PER_PAGE)
+    if (activePage !== page) setPage(activePage)
+  }, [activeGlobalIndex])
+
+  // Auto-scroll active row into view
+  useEffect(() => {
+    activeRowRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [activeGlobalIndex])
+
   const pageLines = lines.slice(page * LINES_PER_PAGE, (page + 1) * LINES_PER_PAGE)
+  const pageOffset = page * LINES_PER_PAGE
 
   if (!meeting.transcript) {
     return (
@@ -78,44 +117,52 @@ export function TranscriptTab({ meeting, onSeek, onOpenSpeakers }: Props) {
         </Button>
       </div>
 
-      {/* Transcript grid — 3 fixed columns: timestamp | speaker | text */}
-      <div className="rounded-lg border border-border bg-card/60 px-4 py-3">
-        <div
-          className="grid gap-y-2"
-          style={{ gridTemplateColumns: '5.5rem 9rem 1fr', columnGap: '0.75rem' }}
-        >
-          {pageLines.map((line, i) => {
-            const color = line.speaker ? getSpeakerColor(line.speaker, colorMap) : ''
-            return (
-              <>
-                {/* Col 1: timestamp */}
-                <div key={`ts-${i}`} className="flex items-baseline pt-[1px]">
-                  {line.timestamp ? (
-                    <button
-                      onClick={() => onSeek(line.timeSecs)}
-                      className="font-mono text-xs tabular-nums text-muted-foreground hover:text-primary transition-colors whitespace-nowrap rounded px-0.5 hover:bg-primary/10"
-                      title={`Seek to ${line.timestamp}`}
-                    >
-                      [{line.timestamp}]
-                    </button>
-                  ) : (
-                    <span className="invisible select-none font-mono text-xs">[--:--]</span>
-                  )}
-                </div>
+      {/* Transcript rows */}
+      <div className="rounded-lg border border-border bg-card/60 px-2 py-3 flex flex-col gap-0.5">
+        {pageLines.map((line, i) => {
+          const globalIdx = pageOffset + i
+          const isActive = globalIdx === activeGlobalIndex
+          const color = line.speaker ? getSpeakerColor(line.speaker, colorMap) : ''
 
-                {/* Col 2: speaker name */}
-                <div key={`sp-${i}`} className={cn('text-sm font-semibold truncate leading-relaxed', color)}>
-                  {line.displayName ? `${line.displayName}:` : ''}
-                </div>
+          return (
+            <div
+              key={globalIdx}
+              ref={isActive ? activeRowRef : undefined}
+              className={cn('grid rounded-xl px-2 py-1 transition-colors duration-200', !isActive && 'hover:bg-muted/30')}
+              style={{
+                gridTemplateColumns: COL_TEMPLATE,
+                columnGap: COL_GAP,
+                backgroundColor: isActive ? 'rgba(251, 191, 36, 0.25)' : undefined,
+                boxShadow: isActive ? 'inset 3px 0 0 rgb(251, 191, 36)' : undefined,
+              }}
+            >
+              {/* Col 1: timestamp */}
+              <div className="flex items-baseline pt-[1px]">
+                {line.timestamp ? (
+                  <button
+                    onClick={() => onSeek(line.timeSecs)}
+                    className="font-mono text-xs tabular-nums text-muted-foreground hover:text-primary transition-colors whitespace-nowrap rounded px-0.5 hover:bg-primary/10"
+                    title={`Seek to ${line.timestamp}`}
+                  >
+                    [{line.timestamp}]
+                  </button>
+                ) : (
+                  <span className="invisible select-none font-mono text-xs">[--:--]</span>
+                )}
+              </div>
 
-                {/* Col 3: text */}
-                <div key={`tx-${i}`} className="text-sm text-foreground/85 leading-relaxed break-words min-w-0">
-                  {line.text}
-                </div>
-              </>
-            )
-          })}
-        </div>
+              {/* Col 2: speaker name */}
+              <div className={cn('text-sm font-semibold truncate leading-relaxed', color)}>
+                {line.displayName ? `${line.displayName}:` : ''}
+              </div>
+
+              {/* Col 3: text */}
+              <div className="text-sm text-foreground/85 leading-relaxed break-words min-w-0">
+                {line.text}
+              </div>
+            </div>
+          )
+        })}
       </div>
 
       {totalPages > 1 && (

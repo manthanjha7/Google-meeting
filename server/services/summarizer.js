@@ -162,6 +162,33 @@ Return only valid JSON, nothing else.
 TRANSCRIPT:
 `;
 
+// ---- Template-based prompt builder ----
+
+function buildTemplatePrompt(tmpl) {
+  const userPrompt = (tmpl.prompt || '').trim();
+
+  return `You are a meeting intelligence assistant for the Finrep team.
+
+IMPORTANT: The transcript may contain Hindi, English, or Hinglish. Process all languages naturally. Always produce output in English.
+
+${userPrompt}
+
+---
+Based on the above instructions, analyze the transcript and return ONLY a valid JSON object with this exact shape:
+{
+  "title": "A concise meeting title (max 10 words)",
+  "customSections": [
+    { "title": "Section heading", "content": "Section content" }
+  ]
+}
+
+Include one entry in customSections for each section described in the instructions above.
+Return ONLY the JSON — no markdown fences, no explanation.
+
+TRANSCRIPT:
+`;
+}
+
 // ---- Public API ----
 
 async function summarize(transcript, extraInstructions = '', settings = {}) {
@@ -311,4 +338,41 @@ function parseSummaryResponse(responseText) {
   return summary;
 }
 
-module.exports = { summarize, summarizeStream, detectSpeakerNames, chunkTranscript };
+async function summarizeWithTemplate(transcript, tmpl, settings = {}) {
+  if (!transcript || transcript.trim().length === 0) {
+    return { title: 'Empty Meeting', participants: [], customSections: [] };
+  }
+  const clientObj = buildClient(settings);
+  const prompt = buildTemplatePrompt(tmpl);
+
+  const response = await clientObj.client.chat.completions.create({
+    model: clientObj.model,
+    max_completion_tokens: 4096,
+    messages: [{ role: 'user', content: prompt + transcript }],
+  });
+
+  const raw = response.choices[0].message.content;
+  const jsonMatch = raw.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error('Failed to parse template summary JSON from LLM response');
+  const result = JSON.parse(jsonMatch[0]);
+
+  // Ensure shape
+  if (!Array.isArray(result.customSections)) result.customSections = [];
+  if (!Array.isArray(result.participants)) result.participants = [];
+  if (!result.title) result.title = '';
+
+  // Fill standard fields as empty so DB schema stays consistent
+  return {
+    title: result.title,
+    participants: result.participants,
+    summary: '',
+    decisions: [],
+    actionItems: [],
+    followUps: [],
+    deadlines: [],
+    nextSteps: [],
+    customSections: result.customSections,
+  };
+}
+
+module.exports = { summarize, summarizeStream, summarizeWithTemplate, detectSpeakerNames, chunkTranscript };

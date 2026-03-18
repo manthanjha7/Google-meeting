@@ -5,12 +5,11 @@ import { cn, fmtTimestamp } from '../../lib/utils'
 interface AudioPlayerProps {
   src: string
   durationSeconds?: number
-  onTimeUpdate?: (secs: number) => void
-  seekTo?: { secs: number; ts: number } // external seek trigger — ts ensures re-run on same value
+  audioRef: React.RefObject<HTMLAudioElement>
+  seekTo?: { secs: number; ts: number }
 }
 
-export function AudioPlayer({ src, durationSeconds, onTimeUpdate, seekTo }: AudioPlayerProps) {
-  const audioRef = useRef<HTMLAudioElement>(null)
+export function AudioPlayer({ src, durationSeconds, audioRef, seekTo }: AudioPlayerProps) {
   const [playing, setPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(durationSeconds || 0)
@@ -18,11 +17,10 @@ export function AudioPlayer({ src, durationSeconds, onTimeUpdate, seekTo }: Audi
   const [seeking, setSeeking] = useState(false)
   const seekRef = useRef(0)
 
-  // Use server-stored duration as fallback for WebM files
   const knownDuration = useCallback(() => {
     const d = audioRef.current?.duration
     return d && isFinite(d) && d > 0 ? d : (durationSeconds || 0)
-  }, [durationSeconds])
+  }, [durationSeconds, audioRef])
 
   useEffect(() => {
     const audio = audioRef.current
@@ -30,42 +28,34 @@ export function AudioPlayer({ src, durationSeconds, onTimeUpdate, seekTo }: Audi
 
     const onLoadedMeta = () => setDuration(knownDuration())
     const onDurationChange = () => setDuration(knownDuration())
-    const onTimeUpdate = () => {
-      if (!seeking) setCurrentTime(audio.currentTime)
-    }
+    const onTU = () => { if (!seeking) setCurrentTime(audio.currentTime) }
     const onPlay = () => setPlaying(true)
     const onPause = () => setPlaying(false)
     const onEnded = () => { setPlaying(false); setCurrentTime(0) }
 
     audio.addEventListener('loadedmetadata', onLoadedMeta)
     audio.addEventListener('durationchange', onDurationChange)
-    audio.addEventListener('timeupdate', onTimeUpdate)
+    audio.addEventListener('timeupdate', onTU)
     audio.addEventListener('play', onPlay)
     audio.addEventListener('pause', onPause)
     audio.addEventListener('ended', onEnded)
     return () => {
       audio.removeEventListener('loadedmetadata', onLoadedMeta)
       audio.removeEventListener('durationchange', onDurationChange)
-      audio.removeEventListener('timeupdate', onTimeUpdate)
+      audio.removeEventListener('timeupdate', onTU)
       audio.removeEventListener('play', onPlay)
       audio.removeEventListener('pause', onPause)
       audio.removeEventListener('ended', onEnded)
     }
-  }, [knownDuration, seeking])
+  }, [knownDuration, seeking, audioRef])
 
-  // Emit time updates to parent
-  useEffect(() => {
-    onTimeUpdate?.(currentTime)
-  }, [currentTime, onTimeUpdate])
-
-  // External seek (timestamp clicks in transcript)
+  // External seek
   useEffect(() => {
     if (seekTo === undefined || !audioRef.current) return
     audioRef.current.currentTime = seekTo.secs
     setCurrentTime(seekTo.secs)
-  }, [seekTo])
+  }, [seekTo, audioRef])
 
-  // Init duration from prop
   useEffect(() => {
     if (durationSeconds && !duration) setDuration(durationSeconds)
   }, [durationSeconds])
@@ -73,11 +63,8 @@ export function AudioPlayer({ src, durationSeconds, onTimeUpdate, seekTo }: Audi
   const togglePlay = async () => {
     const audio = audioRef.current
     if (!audio) return
-    if (playing) {
-      audio.pause()
-    } else {
-      await audio.play().catch(() => {})
-    }
+    if (playing) audio.pause()
+    else await audio.play().catch(() => {})
   }
 
   const toggleMute = () => {
@@ -97,9 +84,7 @@ export function AudioPlayer({ src, durationSeconds, onTimeUpdate, seekTo }: Audi
     const audio = audioRef.current
     if (!audio) return
     const dur = knownDuration()
-    if (dur > 0) {
-      audio.currentTime = (seekRef.current / 1000) * dur
-    }
+    if (dur > 0) audio.currentTime = (seekRef.current / 1000) * dur
     setSeeking(false)
   }
 
