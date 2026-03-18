@@ -513,6 +513,32 @@ header h1 {
 }
 
 /* ============================================================
+   Session Title Input (idle state manual recording)
+   ============================================================ */
+.session-title-input {
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--input);
+  color: var(--foreground);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  margin-top: 12px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.session-title-input::placeholder {
+  color: var(--muted-foreground);
+}
+
+.session-title-input:focus {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+}
+
+/* ============================================================
    Mic Toggle
    ============================================================ */
 .mic-toggle {

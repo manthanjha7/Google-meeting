@@ -608,8 +608,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case 'START_RECORDING_REQUEST':
       if (isStartingRecording) break; // guard against race
       isStartingRecording = true;
+      // If the user typed a title manually (any-tab mode), use it as meetTitle
+      if (message.manualTitle) {
+        meetTitle = message.manualTitle;
+        meetUrl = null;
+        chrome.storage.local.set({ meetTitle, meetUrl: null });
+      }
       getState().then(({ state }) => {
-        if ((state === 'idle' || state === 'meet-detected') && message.tabId) {
+        if ((state === 'idle' || state === 'meet-detected' || state === 'note-prompt') && message.tabId) {
           startRecording(message.tabId, message.includeMic || false);
         } else {
           isStartingRecording = false;

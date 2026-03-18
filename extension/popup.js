@@ -221,40 +221,11 @@ elements.btnSkipNotes.addEventListener('click', () => {
   showState('idle');
 });
 
-elements.btnStart.addEventListener('click', async () => {
-  const btn = elements.btnStart;
-  btn.disabled = true;
-  btn.textContent = 'Starting...';
-
-  // Get the active tab to record
-  const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-
-  if (!activeTab) {
-    btn.textContent = 'No active tab found';
-    btn.disabled = false;
-    return;
-  }
-
-  // Check if we're on a Google Meet page
-  const isGoogleMeet = activeTab.url && (activeTab.url.includes('meet.google.com') || activeTab.url.includes('meet.new'));
-  if (!isGoogleMeet) {
-    btn.textContent = 'Not on Google Meet';
-    setTimeout(() => {
-      btn.textContent = 'Start Recording';
-      btn.disabled = false;
-    }, 2000);
-    return;
-  }
-
-  let includeMic = elements.toggleMic.checked;
-
-  // If mic is requested, check if permission is already granted.
-  // Popups are too transient to show the browser permission dialog, so we
-  // open a dedicated page in a new window if permission hasn't been granted yet.
+// Shared helper: check mic permission, request if needed, then start recording on a tab
+async function startRecordingOnTab(btn, tabId, includeMic, manualTitle) {
   if (includeMic) {
     const permStatus = await navigator.permissions.query({ name: 'microphone' });
     if (permStatus.state === 'prompt') {
-      // Permission not yet granted — open a dedicated page to trigger the prompt
       chrome.windows.create({
         url: chrome.runtime.getURL('mic-permission.html'),
         type: 'popup',
@@ -269,27 +240,57 @@ elements.btnStart.addEventListener('click', async () => {
       }, 3000);
       return;
     } else if (permStatus.state === 'denied') {
-      // User previously denied — fall back to tab-only
       console.warn('[Finrep] Microphone permission previously denied, recording tab audio only');
       includeMic = false;
     }
-    // If 'granted', proceed normally
   }
 
-  // Persist mic preference for next time
   chrome.storage.local.set({ includeMic });
 
-  // Send request to background to start recording
-  // The extension is "invoked" because user clicked the popup, so tabCapture will work
   chrome.runtime.sendMessage({
     type: 'START_RECORDING_REQUEST',
-    tabId: activeTab.id,
+    tabId,
     includeMic,
+    manualTitle: manualTitle || null,
   });
 
-  // Close popup — recording state will be shown when popup is reopened
-  // Small delay so the message is sent first
   setTimeout(() => window.close(), 300);
+}
+
+// Meet-detected state start button (auto-detected Google Meet)
+elements.btnStart.addEventListener('click', async () => {
+  const btn = elements.btnStart;
+  btn.disabled = true;
+  btn.textContent = 'Starting...';
+
+  const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!activeTab) {
+    btn.textContent = 'No active tab found';
+    btn.disabled = false;
+    return;
+  }
+
+  await startRecordingOnTab(btn, activeTab.id, elements.toggleMic.checked, null);
+});
+
+// Idle state manual start button (any tab)
+document.getElementById('btn-manual-start').addEventListener('click', async () => {
+  const btn = document.getElementById('btn-manual-start');
+  btn.disabled = true;
+  btn.textContent = 'Starting...';
+
+  const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!activeTab) {
+    btn.textContent = 'No active tab found';
+    btn.disabled = false;
+    return;
+  }
+
+  const titleInput = document.getElementById('manual-session-title');
+  const manualTitle = titleInput ? titleInput.value.trim() : '';
+  const includeMic = document.getElementById('toggle-mic-idle').checked;
+
+  await startRecordingOnTab(btn, activeTab.id, includeMic, manualTitle || activeTab.title || 'Recording');
 });
 
 // ---- Mic / Tab mute toggles ----
@@ -446,7 +447,10 @@ chrome.storage.onChanged.addListener((changes) => {
 
 // Restore mic toggle preference (defaults to ON so user's voice is captured)
 chrome.storage.local.get('includeMic', (result) => {
-  elements.toggleMic.checked = result.includeMic !== undefined ? result.includeMic : true;
+  const val = result.includeMic !== undefined ? result.includeMic : true;
+  elements.toggleMic.checked = val;
+  const idleMicToggle = document.getElementById('toggle-mic-idle');
+  if (idleMicToggle) idleMicToggle.checked = val;
 });
 
 // ---- Recovery Banner ----

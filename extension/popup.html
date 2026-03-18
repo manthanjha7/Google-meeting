@@ -30,11 +30,25 @@
       <button id="btn-calendar-toggle" class="btn btn-secondary btn-sm" style="font-size:10px;padding:3px 8px;">Connect</button>
     </div>
 
-    <!-- Idle State -->
+    <!-- Idle State — manual recording on any tab -->
     <div id="state-idle" class="state">
       <div class="status-icon idle-icon">&#9679;</div>
-      <p class="status-text">No active meeting detected</p>
-      <p class="hint">Open a Google Meet to get started</p>
+      <p class="status-text">Ready to record</p>
+      <input
+        type="text"
+        id="manual-session-title"
+        class="session-title-input"
+        placeholder="Session title (optional)"
+        maxlength="120"
+      />
+      <div class="mic-toggle" style="margin-top:8px;">
+        <label class="toggle-label">
+          <input type="checkbox" id="toggle-mic-idle" checked />
+          <span class="toggle-text">Include my microphone</span>
+        </label>
+      </div>
+      <button id="btn-manual-start" class="btn btn-primary btn-start">&#9679; Start Recording</button>
+      <p class="hint" style="margin-top:10px;">Or open a Google Meet for auto-detection</p>
     </div>
 
     <!-- Note-Taking Prompt State -->

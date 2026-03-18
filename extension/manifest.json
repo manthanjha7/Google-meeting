@@ -11,6 +11,9 @@
     "offscreen",
     "identity"
   ],
+  "optional_host_permissions": [
+    "<all_urls>"
+  ],
   "oauth2": {
     "client_id": "YOUR_GOOGLE_OAUTH_CLIENT_ID.apps.googleusercontent.com",
     "scopes": [
