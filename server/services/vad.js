@@ -1,95 +1,109 @@
-const fs = require('fs');
 const path = require('path');
 
+// Silero VAD v5 using onnxruntime-node
+// Model input: float32 audio [1, FRAME_SAMPLES] at 16kHz
+// State input: float32 [2, 1, 128] (GRU state, zeros to start)
+// Sr input: int64 [1] = 16000
+// Output: float probability [1, 1], new state [2, 1, 128]
+
+const MODEL_PATH = path.join(__dirname, '..', 'models', 'silero_vad.onnx');
+const SAMPLE_RATE = 16000;
+const FRAME_SAMPLES = 512;           // 32ms at 16kHz (Silero v5 uses 512)
+const FRAME_MS = (FRAME_SAMPLES / SAMPLE_RATE) * 1000;
+
+// VAD thresholds — tuned for Hindi/Hinglish meeting audio
+const SPEECH_THRESHOLD = 0.5;        // Probability above this = speech
+const SILENCE_THRESHOLD = 0.35;      // Probability below this = silence (hysteresis)
+const MIN_SPEECH_FRAMES = 8;         // ~256ms minimum speech segment
+const REDEMPTION_FRAMES = 60;        // ~1920ms — bridge silences this short
+const PADDING_FRAMES = 10;           // ~320ms padding before/after speech
+
+let session = null;
+
+async function getSession() {
+  if (!session) {
+    const ort = require('onnxruntime-node');
+    session = await ort.InferenceSession.create(MODEL_PATH);
+  }
+  return session;
+}
+
 /**
- * Simple energy-based Voice Activity Detection.
- * Strips silence from audio before sending to Sarvam, reducing API cost
- * and improving transcript quality.
- *
- * Works on raw PCM data extracted from WAV files.
- * For WebM/Opus files, we skip VAD (Sarvam handles those directly).
+ * Run Silero VAD on a Float32Array of 16kHz mono PCM samples.
+ * Returns array of { startSample, endSample } speech segments.
  */
+async function detectSpeechSegments(samples) {
+  const ort = require('onnxruntime-node');
+  const sess = await getSession();
 
-const FRAME_SIZE_MS = 30;        // 30ms frames (matches Silero VAD standard)
-const ENERGY_THRESHOLD = 0.005;  // RMS energy threshold for speech
-const MIN_SPEECH_MS = 250;       // Minimum speech segment to keep
-const PADDING_MS = 300;          // Padding before/after speech
-const REDEMPTION_MS = 1500;      // Bridge gaps shorter than this
+  const numFrames = Math.floor(samples.length / FRAME_SAMPLES);
+  if (numFrames === 0) return [{ startSample: 0, endSample: samples.length }];
 
-/**
- * Analyze audio buffer and return speech segment boundaries.
- * Returns array of { startByte, endByte } for speech regions.
- */
-function detectSpeechSegments(pcmBuffer, sampleRate, bytesPerSample, channels) {
-  const frameSamples = Math.floor((sampleRate * FRAME_SIZE_MS) / 1000);
-  const frameBytes = frameSamples * bytesPerSample * channels;
-  const totalFrames = Math.floor(pcmBuffer.length / frameBytes);
+  // Initial GRU state: zeros [2, 1, 128]
+  let state = new Float32Array(2 * 1 * 128);
+  const sr = new BigInt64Array([BigInt(SAMPLE_RATE)]);
 
-  if (totalFrames === 0) return [{ startByte: 0, endByte: pcmBuffer.length }];
+  const probabilities = [];
 
-  // Calculate RMS energy per frame
-  const energies = [];
-  for (let i = 0; i < totalFrames; i++) {
-    const offset = i * frameBytes;
-    let sumSq = 0;
-    const samples = frameSamples * channels;
+  for (let i = 0; i < numFrames; i++) {
+    const frame = samples.slice(i * FRAME_SAMPLES, (i + 1) * FRAME_SAMPLES);
 
-    for (let j = 0; j < samples; j++) {
-      const byteOffset = offset + j * bytesPerSample;
-      let sample;
-      if (bytesPerSample === 2) {
-        sample = pcmBuffer.readInt16LE(byteOffset) / 32768;
-      } else if (bytesPerSample === 4) {
-        sample = pcmBuffer.readFloatLE(byteOffset);
-      } else {
-        sample = (pcmBuffer.readUInt8(byteOffset) - 128) / 128;
-      }
-      sumSq += sample * sample;
-    }
-    energies.push(Math.sqrt(sumSq / samples));
+    const inputTensor = new ort.Tensor('float32', frame, [1, FRAME_SAMPLES]);
+    const stateTensor = new ort.Tensor('float32', state, [2, 1, 128]);
+    const srTensor = new ort.Tensor('int64', sr, [1]);
+
+    const results = await sess.run({ input: inputTensor, state: stateTensor, sr: srTensor });
+    const prob = results.output.data[0];
+    state = results.stateN.data;
+    probabilities.push(prob);
   }
 
-  // Mark frames as speech/silence
-  const isSpeech = energies.map((e) => e > ENERGY_THRESHOLD);
+  // Hysteresis-based speech detection
+  const isSpeech = new Array(numFrames).fill(false);
+  let speaking = false;
+  for (let i = 0; i < numFrames; i++) {
+    if (!speaking && probabilities[i] >= SPEECH_THRESHOLD) {
+      speaking = true;
+    } else if (speaking && probabilities[i] < SILENCE_THRESHOLD) {
+      speaking = false;
+    }
+    isSpeech[i] = speaking;
+  }
 
-  // Apply redemption: bridge short gaps between speech segments
-  const redemptionFrames = Math.ceil(REDEMPTION_MS / FRAME_SIZE_MS);
-  for (let i = 0; i < isSpeech.length; i++) {
-    if (!isSpeech[i]) {
-      // Look ahead for speech within redemption window
-      let foundSpeech = false;
-      for (let j = 1; j <= redemptionFrames && i + j < isSpeech.length; j++) {
-        if (isSpeech[i + j]) { foundSpeech = true; break; }
-      }
-      // Look behind for speech
-      let hadSpeech = false;
-      for (let j = 1; j <= redemptionFrames && i - j >= 0; j++) {
-        if (isSpeech[i - j]) { hadSpeech = true; break; }
-      }
-      if (foundSpeech && hadSpeech) {
-        isSpeech[i] = true; // Bridge the gap
+  // Apply redemption: bridge short silences between speech
+  let silenceCount = 0;
+  for (let i = 0; i < numFrames; i++) {
+    if (isSpeech[i]) {
+      silenceCount = 0;
+    } else {
+      silenceCount++;
+      if (silenceCount <= REDEMPTION_FRAMES) {
+        // Check if speech resumes within redemption window
+        let speechReturns = false;
+        for (let j = i + 1; j < Math.min(i + REDEMPTION_FRAMES, numFrames); j++) {
+          if (isSpeech[j]) { speechReturns = true; break; }
+        }
+        if (speechReturns) isSpeech[i] = true;
       }
     }
   }
 
-  // Extract contiguous speech segments
+  // Extract segments, apply padding, filter short segments
   const segments = [];
   let segStart = null;
 
-  for (let i = 0; i <= isSpeech.length; i++) {
-    if (i < isSpeech.length && isSpeech[i]) {
+  for (let i = 0; i <= numFrames; i++) {
+    if (i < numFrames && isSpeech[i]) {
       if (segStart === null) segStart = i;
     } else {
       if (segStart !== null) {
-        const durationMs = (i - segStart) * FRAME_SIZE_MS;
-        if (durationMs >= MIN_SPEECH_MS) {
-          // Add padding
-          const padFrames = Math.ceil(PADDING_MS / FRAME_SIZE_MS);
-          const startFrame = Math.max(0, segStart - padFrames);
-          const endFrame = Math.min(totalFrames, i + padFrames);
+        const durationFrames = i - segStart;
+        if (durationFrames >= MIN_SPEECH_FRAMES) {
+          const paddedStart = Math.max(0, segStart - PADDING_FRAMES);
+          const paddedEnd = Math.min(numFrames, i + PADDING_FRAMES);
           segments.push({
-            startByte: startFrame * frameBytes,
-            endByte: endFrame * frameBytes,
+            startSample: paddedStart * FRAME_SAMPLES,
+            endSample: paddedEnd * FRAME_SAMPLES,
           });
         }
         segStart = null;
@@ -97,17 +111,14 @@ function detectSpeechSegments(pcmBuffer, sampleRate, bytesPerSample, channels) {
     }
   }
 
-  // If no speech detected, return entire buffer (don't strip everything)
-  if (segments.length === 0) {
-    return [{ startByte: 0, endByte: pcmBuffer.length }];
-  }
+  if (segments.length === 0) return [{ startSample: 0, endSample: samples.length }];
 
   // Merge overlapping segments
   const merged = [segments[0]];
   for (let i = 1; i < segments.length; i++) {
     const prev = merged[merged.length - 1];
-    if (segments[i].startByte <= prev.endByte) {
-      prev.endByte = Math.max(prev.endByte, segments[i].endByte);
+    if (segments[i].startSample <= prev.endSample) {
+      prev.endSample = Math.max(prev.endSample, segments[i].endSample);
     } else {
       merged.push(segments[i]);
     }
@@ -117,134 +128,172 @@ function detectSpeechSegments(pcmBuffer, sampleRate, bytesPerSample, channels) {
 }
 
 /**
- * Parse a WAV file header and return metadata.
+ * Resample PCM samples from srcRate to 16000 Hz (linear interpolation).
  */
-function parseWavHeader(buffer) {
-  if (buffer.length < 44) return null;
-  const riff = buffer.toString('ascii', 0, 4);
-  if (riff !== 'RIFF') return null;
-
-  const format = buffer.toString('ascii', 8, 12);
-  if (format !== 'WAVE') return null;
-
-  // Find 'fmt ' chunk
-  let offset = 12;
-  while (offset < buffer.length - 8) {
-    const chunkId = buffer.toString('ascii', offset, offset + 4);
-    const chunkSize = buffer.readUInt32LE(offset + 4);
-    if (chunkId === 'fmt ') {
-      const audioFormat = buffer.readUInt16LE(offset + 8);
-      const channels = buffer.readUInt16LE(offset + 10);
-      const sampleRate = buffer.readUInt32LE(offset + 12);
-      const bitsPerSample = buffer.readUInt16LE(offset + 22);
-
-      return {
-        audioFormat,
-        channels,
-        sampleRate,
-        bytesPerSample: bitsPerSample / 8,
-        headerEnd: findDataChunk(buffer),
-      };
-    }
-    offset += 8 + chunkSize;
+function resampleTo16k(samples, srcRate) {
+  if (srcRate === SAMPLE_RATE) return samples;
+  const ratio = srcRate / SAMPLE_RATE;
+  const outLength = Math.floor(samples.length / ratio);
+  const out = new Float32Array(outLength);
+  for (let i = 0; i < outLength; i++) {
+    const srcIdx = i * ratio;
+    const lo = Math.floor(srcIdx);
+    const hi = Math.min(lo + 1, samples.length - 1);
+    const frac = srcIdx - lo;
+    out[i] = samples[lo] * (1 - frac) + samples[hi] * frac;
   }
-  return null;
-}
-
-function findDataChunk(buffer) {
-  let offset = 12;
-  while (offset < buffer.length - 8) {
-    const chunkId = buffer.toString('ascii', offset, offset + 4);
-    const chunkSize = buffer.readUInt32LE(offset + 4);
-    if (chunkId === 'data') {
-      return { dataOffset: offset + 8, dataSize: chunkSize };
-    }
-    offset += 8 + chunkSize;
-  }
-  return null;
+  return out;
 }
 
 /**
- * Strip silence from a WAV file.
- * Returns a new Buffer with only speech segments, preserving WAV format.
- * Returns original buffer if not a WAV file or if VAD can't be applied.
+ * Downmix multi-channel PCM to mono by averaging channels.
  */
-function stripSilenceFromWav(fileBuffer) {
+function toMono(samples, channels) {
+  if (channels === 1) return samples;
+  const mono = new Float32Array(samples.length / channels);
+  for (let i = 0; i < mono.length; i++) {
+    let sum = 0;
+    for (let c = 0; c < channels; c++) {
+      sum += samples[i * channels + c];
+    }
+    mono[i] = sum / channels;
+  }
+  return mono;
+}
+
+// ---- WAV Parser ----
+
+function parseWavHeader(buffer) {
+  if (buffer.length < 44) return null;
+  if (buffer.toString('ascii', 0, 4) !== 'RIFF') return null;
+  if (buffer.toString('ascii', 8, 12) !== 'WAVE') return null;
+
+  let offset = 12;
+  let fmtInfo = null;
+  let dataInfo = null;
+
+  while (offset < buffer.length - 8) {
+    const chunkId = buffer.toString('ascii', offset, offset + 4);
+    const chunkSize = buffer.readUInt32LE(offset + 4);
+
+    if (chunkId === 'fmt ') {
+      fmtInfo = {
+        channels: buffer.readUInt16LE(offset + 10),
+        sampleRate: buffer.readUInt32LE(offset + 12),
+        bitsPerSample: buffer.readUInt16LE(offset + 22),
+      };
+    } else if (chunkId === 'data') {
+      dataInfo = { dataOffset: offset + 8, dataSize: chunkSize };
+    }
+
+    offset += 8 + chunkSize;
+    if (fmtInfo && dataInfo) break;
+  }
+
+  if (!fmtInfo || !dataInfo) return null;
+  return { ...fmtInfo, ...dataInfo };
+}
+
+function buildWav(pcmBuffer, channels, sampleRate, bitsPerSample) {
+  const blockAlign = channels * (bitsPerSample / 8);
+  const byteRate = sampleRate * blockAlign;
+  const buf = Buffer.alloc(44 + pcmBuffer.length);
+
+  buf.write('RIFF', 0);
+  buf.writeUInt32LE(36 + pcmBuffer.length, 4);
+  buf.write('WAVE', 8);
+  buf.write('fmt ', 12);
+  buf.writeUInt32LE(16, 16);
+  buf.writeUInt16LE(1, 20);
+  buf.writeUInt16LE(channels, 22);
+  buf.writeUInt32LE(sampleRate, 24);
+  buf.writeUInt32LE(byteRate, 28);
+  buf.writeUInt16LE(blockAlign, 32);
+  buf.writeUInt16LE(bitsPerSample, 34);
+  buf.write('data', 36);
+  buf.writeUInt32LE(pcmBuffer.length, 40);
+  pcmBuffer.copy(buf, 44);
+  return buf;
+}
+
+/**
+ * Convert WAV PCM buffer (int16/int32/uint8) to Float32Array.
+ */
+function pcmBufferToFloat32(pcmBuffer, bitsPerSample, channels, sampleRate) {
+  const bytesPerSample = bitsPerSample / 8;
+  const totalSamples = Math.floor(pcmBuffer.length / bytesPerSample);
+  const float32 = new Float32Array(totalSamples);
+
+  for (let i = 0; i < totalSamples; i++) {
+    const offset = i * bytesPerSample;
+    if (bitsPerSample === 16) {
+      float32[i] = pcmBuffer.readInt16LE(offset) / 32768;
+    } else if (bitsPerSample === 32) {
+      float32[i] = pcmBuffer.readFloatLE(offset);
+    } else {
+      float32[i] = (pcmBuffer.readUInt8(offset) - 128) / 128;
+    }
+  }
+
+  return float32;
+}
+
+/**
+ * Strip silence from a WAV file using Silero VAD.
+ * Returns { buffer, stripped, stats }.
+ */
+async function stripSilenceFromWav(fileBuffer) {
   const header = parseWavHeader(fileBuffer);
-  if (!header || !header.headerEnd) {
-    console.log('[VAD] Not a WAV file or invalid header, skipping VAD');
+  if (!header) {
     return { buffer: fileBuffer, stripped: false, stats: null };
   }
 
-  const { channels, sampleRate, bytesPerSample } = header;
-  const { dataOffset, dataSize } = header.headerEnd;
+  const { channels, sampleRate, bitsPerSample, dataOffset, dataSize } = header;
   const pcmData = fileBuffer.slice(dataOffset, dataOffset + dataSize);
 
-  const originalDurationMs = (pcmData.length / (sampleRate * bytesPerSample * channels)) * 1000;
+  const originalDurationMs = (pcmData.length / (sampleRate * (bitsPerSample / 8) * channels)) * 1000;
 
-  const segments = detectSpeechSegments(pcmData, sampleRate, bytesPerSample, channels);
+  try {
+    // Convert PCM to float32 mono at 16kHz for Silero
+    let samples = pcmBufferToFloat32(pcmData, bitsPerSample, channels, sampleRate);
+    samples = toMono(samples, channels);
+    samples = resampleTo16k(samples, sampleRate);
 
-  // Concatenate speech segments
-  const speechBuffers = segments.map((seg) =>
-    pcmData.slice(seg.startByte, Math.min(seg.endByte, pcmData.length))
-  );
-  const speechPcm = Buffer.concat(speechBuffers);
-  const strippedDurationMs = (speechPcm.length / (sampleRate * bytesPerSample * channels)) * 1000;
+    const segments = await detectSpeechSegments(samples);
 
-  const reductionPct = ((1 - speechPcm.length / pcmData.length) * 100).toFixed(1);
+    // Convert sample-level segments back to byte offsets in original PCM
+    const samplesPerOriginalByte = 1 / ((bitsPerSample / 8) * channels);
+    const resampleRatio = sampleRate / SAMPLE_RATE;
 
-  console.log(`[VAD] Original: ${(originalDurationMs / 1000).toFixed(1)}s, Speech: ${(strippedDurationMs / 1000).toFixed(1)}s, Reduction: ${reductionPct}%, Segments: ${segments.length}`);
+    const speechBuffers = segments.map((seg) => {
+      // Map 16kHz sample indices back to original PCM bytes
+      const origStartSample = Math.floor(seg.startSample * resampleRatio);
+      const origEndSample = Math.ceil(seg.endSample * resampleRatio);
+      const startByte = origStartSample * (bitsPerSample / 8) * channels;
+      const endByte = Math.min(origEndSample * (bitsPerSample / 8) * channels, pcmData.length);
+      return pcmData.slice(startByte, endByte);
+    });
 
-  // Only apply if we actually reduced something meaningful (>10%)
-  if (speechPcm.length >= pcmData.length * 0.9) {
-    return { buffer: fileBuffer, stripped: false, stats: { originalMs: originalDurationMs, speechMs: strippedDurationMs, segments: segments.length } };
+    const speechPcm = Buffer.concat(speechBuffers);
+    const strippedDurationMs = (speechPcm.length / (sampleRate * (bitsPerSample / 8) * channels)) * 1000;
+    const reductionPct = ((1 - speechPcm.length / pcmData.length) * 100).toFixed(1);
+
+    console.log(`[VAD/Silero] Original: ${(originalDurationMs / 1000).toFixed(1)}s, Speech: ${(strippedDurationMs / 1000).toFixed(1)}s, Reduction: ${reductionPct}%, Segments: ${segments.length}`);
+
+    if (speechPcm.length >= pcmData.length * 0.9) {
+      return { buffer: fileBuffer, stripped: false, stats: { originalMs: originalDurationMs, speechMs: strippedDurationMs, segments: segments.length, reductionPct: parseFloat(reductionPct) } };
+    }
+
+    const newWav = buildWav(speechPcm, channels, sampleRate, bitsPerSample);
+    return {
+      buffer: newWav,
+      stripped: true,
+      stats: { originalMs: originalDurationMs, speechMs: strippedDurationMs, segments: segments.length, reductionPct: parseFloat(reductionPct) },
+    };
+  } catch (err) {
+    console.warn('[VAD/Silero] VAD failed, using original audio:', err.message);
+    return { buffer: fileBuffer, stripped: false, stats: null };
   }
-
-  // Rebuild WAV file with new PCM data
-  const newWav = buildWav(speechPcm, channels, sampleRate, bytesPerSample * 8);
-
-  return {
-    buffer: newWav,
-    stripped: true,
-    stats: {
-      originalMs: originalDurationMs,
-      speechMs: strippedDurationMs,
-      segments: segments.length,
-      reductionPct: parseFloat(reductionPct),
-    },
-  };
-}
-
-/**
- * Build a WAV file buffer from raw PCM data.
- */
-function buildWav(pcmBuffer, channels, sampleRate, bitsPerSample) {
-  const byteRate = sampleRate * channels * (bitsPerSample / 8);
-  const blockAlign = channels * (bitsPerSample / 8);
-  const headerSize = 44;
-  const buffer = Buffer.alloc(headerSize + pcmBuffer.length);
-
-  // RIFF header
-  buffer.write('RIFF', 0);
-  buffer.writeUInt32LE(36 + pcmBuffer.length, 4);
-  buffer.write('WAVE', 8);
-
-  // fmt chunk
-  buffer.write('fmt ', 12);
-  buffer.writeUInt32LE(16, 16);           // chunk size
-  buffer.writeUInt16LE(1, 20);            // PCM format
-  buffer.writeUInt16LE(channels, 22);
-  buffer.writeUInt32LE(sampleRate, 24);
-  buffer.writeUInt32LE(byteRate, 28);
-  buffer.writeUInt16LE(blockAlign, 32);
-  buffer.writeUInt16LE(bitsPerSample, 34);
-
-  // data chunk
-  buffer.write('data', 36);
-  buffer.writeUInt32LE(pcmBuffer.length, 40);
-  pcmBuffer.copy(buffer, 44);
-
-  return buffer;
 }
 
 module.exports = { stripSilenceFromWav };
