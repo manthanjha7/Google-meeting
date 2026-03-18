@@ -648,29 +648,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       });
       break;
 
-    case 'LIVE_CHUNK_READY':
-      // Send 15s audio chunk to server for live transcript preview
+    case 'LIVE_TRANSCRIPT_CHUNK':
+      // Web Speech API result — store directly, no Sarvam call needed
       (async () => {
-        try {
-          const res = await apiFetch('/transcribe/live', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              audioBase64: message.audioBase64,
-              filename: message.filename || 'live_chunk.webm',
-            }),
-          });
-          const data = await res.json();
-          if (data.transcript && data.transcript.trim()) {
-            // Append to rolling live transcript (keep last 8 utterances)
-            const stored = await chrome.storage.local.get('liveTranscript');
-            const prev = stored.liveTranscript || [];
-            const updated = [...prev, data.transcript.trim()].slice(-8);
-            await chrome.storage.local.set({ liveTranscript: updated });
-          }
-        } catch (err) {
-          console.warn('[Finrep] Live transcript chunk failed:', err.message);
-        }
+        if (!message.transcript) return;
+        const stored = await chrome.storage.local.get('liveTranscript');
+        const prev = stored.liveTranscript || [];
+        const updated = [...prev, message.transcript].slice(-8);
+        await chrome.storage.local.set({ liveTranscript: updated });
       })();
       break;
 

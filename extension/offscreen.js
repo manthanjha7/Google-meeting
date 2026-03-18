@@ -94,11 +94,8 @@ async function getAllIdbChunks() {
   }
 }
 
-// ---- Live transcript: second recorder for 15-second preview chunks ----
-const LIVE_CHUNK_MS = 15000; // 15 seconds per live preview chunk
-let liveRecorder = null;
-let liveChunkInterval = null;
-let isLiveRecording = false;
+// ---- Live transcript: Web Speech API (free, browser-native, no Sarvam cost) ----
+let speechRecognition = null;
 
 // ---- Message-based command listener ----
 
@@ -317,8 +314,8 @@ async function startRecording(streamId, includeMic = false) {
     console.log(`[Finrep] Recording started with auto-chunking every ${CHUNK_DURATION_MS / 60000} minutes`);
     chrome.runtime.sendMessage({ type: 'RECORDING_STARTED' });
 
-    // Start live transcript preview recorder (separate from main recorder)
-    startLiveChunkRecorder();
+    // Start live transcript preview via Web Speech API (free, no Sarvam cost)
+    startSpeechRecognition();
   } catch (err) {
     console.error('[Finrep] Recording error:', err);
     cleanupStreams();
@@ -622,7 +619,7 @@ function stopRecording() {
   if (mediaRecorder && mediaRecorder.state === 'recording') {
     mediaRecorder.onstop = async () => {
       stopAudioAnalyser();
-      stopLiveChunkRecorder();
+      stopSpeechRecognition();
 
       // Finalize the last chunk
       const blob = new Blob(recordedChunks, { type: 'audio/webm' });
@@ -701,74 +698,62 @@ async function cancelRecording() {
   cleanupStreams();
 }
 
-// ---- Live Transcript Preview ----
+// ---- Live Transcript Preview — Web Speech API ----
+// Free, browser-native, zero Sarvam API cost.
+// Captures mic audio only (not tab) — good enough for a live preview.
+// Accurate final transcript with speaker diarization runs via Sarvam after recording.
 
-/**
- * Start the live chunk recorder. Every LIVE_CHUNK_MS, stops the current
- * recorder (producing a complete self-contained WebM file), sends it to
- * background for transcription, then starts a new recorder.
- *
- * Uses a separate MediaRecorder on the same stream — main recorder is unaffected.
- */
-function startLiveChunkRecorder() {
-  if (!recordingStream || isLiveRecording) return;
-  isLiveRecording = true;
-
-  function recordOneChunk() {
-    if (!recordingStream || !isLiveRecording) return;
-
-    const chunks = [];
-    liveRecorder = new MediaRecorder(recordingStream, {
-      mimeType: 'audio/webm;codecs=opus',
-      audioBitsPerSecond: 32000, // Lower bitrate for quick preview
-    });
-
-    liveRecorder.ondataavailable = (e) => {
-      if (e.data.size > 0) chunks.push(e.data);
-    };
-
-    liveRecorder.onstop = async () => {
-      if (!isLiveRecording) return;
-      const blob = new Blob(chunks, { type: 'audio/webm' });
-      if (blob.size > 1000) {
-        const audioBase64 = await blobToBase64(blob);
-        chrome.runtime.sendMessage({
-          type: 'LIVE_CHUNK_READY',
-          audioBase64,
-          filename: 'live_chunk.webm',
-        });
-      }
-      // Schedule next chunk immediately
-      if (isLiveRecording) {
-        liveChunkInterval = setTimeout(recordOneChunk, 100);
-      }
-    };
-
-    liveRecorder.start();
-    // Stop after LIVE_CHUNK_MS to produce a complete WebM file
-    setTimeout(() => {
-      if (liveRecorder && liveRecorder.state === 'recording') {
-        liveRecorder.stop();
-      }
-    }, LIVE_CHUNK_MS);
+function startSpeechRecognition() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) {
+    console.warn('[Finrep] Web Speech API not available in this context');
+    return;
   }
 
-  recordOneChunk();
-  console.log('[Finrep] Live transcript preview started (15s chunks)');
+  speechRecognition = new SR();
+  speechRecognition.continuous = true;
+  speechRecognition.interimResults = true;
+  speechRecognition.lang = 'hi-IN'; // Handles Hindi + English code-switching (Hinglish)
+  speechRecognition.maxAlternatives = 1;
+
+  speechRecognition.onresult = (event) => {
+    let finalText = '';
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      if (event.results[i].isFinal) {
+        finalText += event.results[i][0].transcript.trim() + ' ';
+      }
+    }
+    if (finalText.trim()) {
+      chrome.runtime.sendMessage({
+        type: 'LIVE_TRANSCRIPT_CHUNK',
+        transcript: finalText.trim(),
+      });
+    }
+  };
+
+  speechRecognition.onerror = (e) => {
+    if (e.error === 'aborted' || e.error === 'not-allowed') return;
+    console.warn('[Finrep] Speech recognition error:', e.error);
+    // Auto-restart on transient errors
+    if (speechRecognition) setTimeout(() => { if (speechRecognition) speechRecognition.start(); }, 1000);
+  };
+
+  // Auto-restart when browser stops recognition (it times out periodically)
+  speechRecognition.onend = () => {
+    if (speechRecognition) speechRecognition.start();
+  };
+
+  speechRecognition.start();
+  console.log('[Finrep] Web Speech API live preview started');
 }
 
-function stopLiveChunkRecorder() {
-  isLiveRecording = false;
-  if (liveChunkInterval) {
-    clearTimeout(liveChunkInterval);
-    liveChunkInterval = null;
+function stopSpeechRecognition() {
+  if (speechRecognition) {
+    const sr = speechRecognition;
+    speechRecognition = null; // null first to prevent auto-restart in onend
+    sr.stop();
   }
-  if (liveRecorder && liveRecorder.state !== 'inactive') {
-    liveRecorder.onstop = null; // Prevent scheduling next chunk
-    liveRecorder.stop();
-  }
-  liveRecorder = null;
-  console.log('[Finrep] Live transcript preview stopped');
+  console.log('[Finrep] Web Speech API live preview stopped');
 }
 
 /**
