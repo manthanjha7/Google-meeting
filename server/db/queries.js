@@ -46,11 +46,11 @@ async function updateCallType(id, callType) {
   return getMeeting(id);
 }
 
-async function markSlackPosted(id) {
+async function markSlackPosted(id, threadTs = null) {
   const db = await getDb();
   db.run(
-    `UPDATE meetings SET slack_posted = 1, updated_at = datetime('now') WHERE id = ?`,
-    [id]
+    `UPDATE meetings SET slack_posted = 1, slack_thread_ts = ?, updated_at = datetime('now') WHERE id = ?`,
+    [threadTs, id]
   );
   saveDb();
   return getMeeting(id);

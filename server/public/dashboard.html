@@ -635,6 +635,18 @@
         <textarea id="setting-custom-prompt" placeholder="Optional custom instructions for all summaries..." style="width:100%;padding:8px 12px;background:#2a2a4a;border:1px solid #3a3a5a;border-radius:6px;color:#e0e0e0;font-size:13px;min-height:60px;font-family:inherit;resize:vertical;"></textarea>
       </div>
       <div class="settings-section">
+        <h3>Slack</h3>
+        <p style="font-size:11px;color:#888;margin-bottom:8px;">Bot token enables thread-based posting (decisions + action items as replies). Webhook posts a single flat message.</p>
+        <div class="settings-row">
+          <label>Bot Token</label>
+          <input type="password" id="setting-slack-bot-token" placeholder="xoxb-..." style="flex:1;padding:6px 10px;background:#2a2a4a;border:1px solid #3a3a5a;border-radius:6px;color:#e0e0e0;font-size:13px;">
+        </div>
+        <div class="settings-row">
+          <label>Channel ID</label>
+          <input type="text" id="setting-slack-channel-id" placeholder="C01234ABCDE" style="flex:1;padding:6px 10px;background:#2a2a4a;border:1px solid #3a3a5a;border-radius:6px;color:#e0e0e0;font-size:13px;">
+        </div>
+      </div>
+      <div class="settings-section">
         <h3>Display</h3>
         <div class="settings-row">
           <label>Transcript Lines Per Page</label>
@@ -716,6 +728,8 @@
           settings.groq_model = data.settings.groq_model || 'llama-3.3-70b-versatile';
           settings.ollama_base_url = data.settings.ollama_base_url || '';
           settings.ollama_model = data.settings.ollama_model || '';
+          settings.slack_bot_token = data.settings.slack_bot_token || '';
+          settings.slack_channel_id = data.settings.slack_channel_id || '';
         }
       } catch (e) { /* use defaults */ }
     }
@@ -729,6 +743,8 @@
       settings.groq_model = document.getElementById('setting-groq-model').value;
       settings.ollama_base_url = document.getElementById('setting-ollama-url').value;
       settings.ollama_model = document.getElementById('setting-ollama-model').value;
+      settings.slack_bot_token = document.getElementById('setting-slack-bot-token').value;
+      settings.slack_channel_id = document.getElementById('setting-slack-channel-id').value;
 
       try {
         await fetch(`${API}/settings`, {
@@ -743,6 +759,8 @@
             groq_model: settings.groq_model,
             ollama_base_url: settings.ollama_base_url,
             ollama_model: settings.ollama_model,
+            slack_bot_token: settings.slack_bot_token,
+            slack_channel_id: settings.slack_channel_id,
           }}),
         });
         closeModal('settings-modal');
@@ -761,6 +779,8 @@
       document.getElementById('setting-groq-model').value = settings.groq_model || 'llama-3.3-70b-versatile';
       document.getElementById('setting-ollama-url').value = settings.ollama_base_url || '';
       document.getElementById('setting-ollama-model').value = settings.ollama_model || '';
+      document.getElementById('setting-slack-bot-token').value = settings.slack_bot_token || '';
+      document.getElementById('setting-slack-channel-id').value = settings.slack_channel_id || '';
       onProviderChange();
       openModal('settings-modal');
     }
