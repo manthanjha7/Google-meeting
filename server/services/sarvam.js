@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { spawn } = require('child_process');
 const { BlobServiceClient } = require('@azure/storage-blob');
 const { stripSilenceFromWav } = require('./vad');
 
@@ -11,6 +12,44 @@ const SARVAM_JOB_STATUS = (jobId) => `${SARVAM_BASE}/speech-to-text/job/${jobId}
 
 const POLL_INTERVAL_MS = 10_000; // 10 seconds
 const MAX_POLL_TIME_MS = 10 * 60_000; // 10 minutes
+
+/**
+ * Convert any audio format to 16kHz mono WAV using ffmpeg.
+ * Returns null if ffmpeg is not installed.
+ */
+function convertToWav(audioBuffer) {
+  return new Promise((resolve, reject) => {
+    const ffmpeg = spawn('ffmpeg', [
+      '-i', 'pipe:0',   // read from stdin
+      '-f', 'wav',      // output WAV
+      '-ar', '16000',   // 16kHz — matches Silero VAD requirement
+      '-ac', '1',       // mono
+      '-y',             // overwrite
+      'pipe:1',         // write to stdout
+    ]);
+
+    const chunks = [];
+    ffmpeg.stdout.on('data', (chunk) => chunks.push(chunk));
+    ffmpeg.stderr.on('data', () => {}); // suppress ffmpeg progress output
+
+    ffmpeg.on('close', (code) => {
+      if (code === 0 && chunks.length > 0) {
+        resolve(Buffer.concat(chunks));
+      } else {
+        reject(new Error(`ffmpeg exited with code ${code}`));
+      }
+    });
+
+    ffmpeg.on('error', (err) => {
+      // ffmpeg not installed — resolve null so caller can skip VAD gracefully
+      if (err.code === 'ENOENT') resolve(null);
+      else reject(err);
+    });
+
+    ffmpeg.stdin.write(audioBuffer);
+    ffmpeg.stdin.end();
+  });
+}
 
 /**
  * Transcribe an audio file using Sarvam Batch STT API.
@@ -31,20 +70,34 @@ async function transcribe(audioFilePath, { numSpeakers } = {}) {
     throw new Error(`Audio file too small (${audioBuffer.length} bytes) — recording may have failed`);
   }
 
-  // Apply VAD: strip silence from WAV files to reduce API cost and improve quality
+  // Apply VAD: strip silence to reduce Sarvam API cost and improve transcription quality.
+  // For WAV files: run directly. For WebM/other formats: convert to WAV via ffmpeg first,
+  // then send the stripped WAV to Sarvam (which accepts WAV natively).
+  let uploadFileName = fileName;
   const ext = path.extname(audioFilePath).toLowerCase();
-  if (ext === '.wav') {
-    try {
-      const vadResult = stripSilenceFromWav(audioBuffer);
-      if (vadResult.stripped) {
-        console.log(`[Sarvam] VAD stripped silence: ${vadResult.stats.reductionPct}% reduction (${vadResult.stats.segments} speech segments)`);
-        audioBuffer = vadResult.buffer;
-      } else if (vadResult.stats) {
-        console.log(`[Sarvam] VAD: minimal silence detected, using original audio`);
-      }
-    } catch (vadErr) {
-      console.warn(`[Sarvam] VAD failed, using original audio:`, vadErr.message);
+  try {
+    let wavBuffer = null;
+    if (ext === '.wav') {
+      wavBuffer = audioBuffer;
+    } else {
+      // Convert to 16kHz mono WAV via ffmpeg (if available) for VAD processing
+      wavBuffer = await convertToWav(audioBuffer).catch(() => null);
     }
+
+    if (wavBuffer) {
+      const vadResult = await stripSilenceFromWav(wavBuffer);
+      if (vadResult.stripped) {
+        console.log(`[Sarvam] VAD: ${vadResult.stats.reductionPct}% silence removed — ${(vadResult.stats.originalMs / 1000).toFixed(1)}s → ${(vadResult.stats.speechMs / 1000).toFixed(1)}s (${vadResult.stats.segments} segments)`);
+        audioBuffer = vadResult.buffer;
+        uploadFileName = uploadFileName.replace(/\.[^.]+$/, '.wav');
+      } else {
+        console.log(`[Sarvam] VAD: minimal silence, using original audio`);
+        if (ext !== '.wav') audioBuffer = wavBuffer; // still use the converted WAV for Sarvam
+        uploadFileName = uploadFileName.replace(/\.[^.]+$/, '.wav');
+      }
+    }
+  } catch (vadErr) {
+    console.warn(`[Sarvam] VAD failed, using original audio:`, vadErr.message);
   }
 
   const headers = {
@@ -73,7 +126,7 @@ async function transcribe(audioFilePath, { numSpeakers } = {}) {
   }
 
   // Step 2: Upload audio file to Azure Blob Storage input path
-  await uploadToAzureBlob(inputPath, audioBuffer, fileName);
+  await uploadToAzureBlob(inputPath, audioBuffer, uploadFileName);
 
   // Step 3: Start the job with diarization enabled
   const jobParameters = {
