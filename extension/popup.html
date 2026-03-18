@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Finrep Meeting Intelligence</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
@@ -68,14 +71,17 @@
       <div class="audio-visualizer" id="audio-visualizer"></div>
       <div class="source-levels" id="source-levels">
         <div class="source-level">
+          <button id="btn-mute-mic" class="mute-btn" title="Mute microphone">🎤</button>
           <span class="source-label">MIC</span>
           <div class="source-bar-track"><div class="source-bar mic-bar" id="mic-level-bar"></div></div>
         </div>
         <div class="source-level">
+          <button id="btn-mute-tab" class="mute-btn" title="Mute tab audio">🔊</button>
           <span class="source-label">TAB</span>
           <div class="source-bar-track"><div class="source-bar tab-bar" id="tab-level-bar"></div></div>
         </div>
       </div>
+
       <p class="status-text">Recording in progress</p>
       <p id="recording-timer" class="timer">00:00:00</p>
       <!-- Live transcript preview -->

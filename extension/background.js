@@ -750,6 +750,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       chrome.storage.local.remove('recoveryNotice');
       break;
 
+    case 'TOGGLE_MIC_MUTE':
+    case 'TOGGLE_TAB_MUTE':
+      chrome.runtime.sendMessage({ type: message.type, target: 'offscreen' }, (resp) => {
+        sendResponse(resp);
+      });
+      return true;
+
     case 'CONNECT_CALENDAR':
       connectGoogleCalendar().then((ok) => sendResponse({ success: ok }));
       return true;

@@ -27,6 +27,8 @@ let tabAnalyserNode = null;   // Separate analyser for tab levels
 let silentGain = null;
 let tabGainNode = null;       // For ducking control
 let duckingInterval = null;   // For RMS-based ducking loop
+let micMuteGain = null;       // Mute toggle for mic
+let tabMuteGain = null;       // Mute toggle for tab
 let isStarting = false; // Guard against double execution
 
 // ---- Chunk-based recording for long meetings ----
@@ -126,6 +128,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case 'CANCEL_RECORDING':
       cancelRecording();
       break;
+    case 'TOGGLE_MIC_MUTE':
+      if (micMuteGain) {
+        const micMuted = micMuteGain.gain.value === 0;
+        micMuteGain.gain.setTargetAtTime(micMuted ? 1.0 : 0.0, audioContext.currentTime, 0.01);
+        sendResponse({ muted: !micMuted });
+      }
+      break;
+    case 'TOGGLE_TAB_MUTE':
+      if (tabMuteGain) {
+        const tabMuted = tabMuteGain.gain.value === 0;
+        tabMuteGain.gain.setTargetAtTime(tabMuted ? 1.0 : 0.0, audioContext.currentTime, 0.01);
+        sendResponse({ muted: !tabMuted });
+      }
+      break;
   }
 });
 
@@ -224,13 +240,21 @@ async function startRecording(streamId, includeMic = false) {
         const processedTab = createProcessedSource(tabSource);
         const processedMic = createProcessedSource(micSource);
 
+        // ---- Mute gain nodes (toggled by user) ----
+        tabMuteGain = audioContext.createGain();
+        tabMuteGain.gain.value = 1.0;
+        micMuteGain = audioContext.createGain();
+        micMuteGain.gain.value = 1.0;
+
         // ---- Audio ducking ----
         // When mic is loud, reduce tab volume so user's voice isn't drowned out
         tabGainNode = audioContext.createGain();
         tabGainNode.gain.value = 1.0;
-        processedTab.output.connect(tabGainNode);
+        processedTab.output.connect(tabMuteGain);
+        tabMuteGain.connect(tabGainNode);
         tabGainNode.connect(mixedDestination);
-        processedMic.output.connect(mixedDestination);
+        processedMic.output.connect(micMuteGain);
+        micMuteGain.connect(mixedDestination);
 
         // Set up per-source analysers for separate level monitoring
         micAnalyserNode = audioContext.createAnalyser();
@@ -256,14 +280,20 @@ async function startRecording(streamId, includeMic = false) {
         console.warn('[Finrep] Microphone access denied, falling back to tab audio only:', micErr.message);
         const processedTab = createProcessedSource(tabSource);
         const dest = audioContext.createMediaStreamDestination();
-        processedTab.output.connect(dest);
+        tabMuteGain = audioContext.createGain();
+        tabMuteGain.gain.value = 1.0;
+        processedTab.output.connect(tabMuteGain);
+        tabMuteGain.connect(dest);
         recordingStream = dest.stream;
         analyserSource = audioContext.createMediaStreamSource(dest.stream);
       }
     } else {
       const processedTab = createProcessedSource(tabSource);
       const dest = audioContext.createMediaStreamDestination();
-      processedTab.output.connect(dest);
+      tabMuteGain = audioContext.createGain();
+      tabMuteGain.gain.value = 1.0;
+      processedTab.output.connect(tabMuteGain);
+      tabMuteGain.connect(dest);
       recordingStream = dest.stream;
       analyserSource = audioContext.createMediaStreamSource(dest.stream);
       console.log('[Finrep] Recording tab audio only (with quality filters)');
@@ -573,6 +603,8 @@ function cleanupStreams() {
     audioContext.close();
     audioContext = null;
   }
+  micMuteGain = null;
+  tabMuteGain = null;
   recordingStream = null;
 }
 

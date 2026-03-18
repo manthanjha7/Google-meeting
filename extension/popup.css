@@ -1,34 +1,76 @@
+/* ============================================================
+   shadcn/ui design tokens
+   ============================================================ */
+:root {
+  --background: #0a0a14;
+  --foreground: #f1f1f5;
+  --card: #12121f;
+  --card-foreground: #f1f1f5;
+  --primary: #6366f1;
+  --primary-foreground: #ffffff;
+  --primary-hover: #5558e8;
+  --secondary: #1e1e35;
+  --secondary-foreground: #a1a1c4;
+  --muted: #1a1a2e;
+  --muted-foreground: #6b7080;
+  --accent: #2d2d55;
+  --accent-foreground: #c4c4f0;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --border: #252540;
+  --input: #1e1e38;
+  --ring: #6366f1;
+  --radius: 0.5rem;
+  --radius-sm: 0.375rem;
+  --radius-lg: 0.75rem;
+}
+
+/* ============================================================
+   Reset
+   ============================================================ */
 * {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
 }
 
+/* ============================================================
+   Base
+   ============================================================ */
 body {
   width: 360px;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  background: #1a1a2e;
-  color: #e0e0e0;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--background);
+  color: var(--foreground);
+  letter-spacing: -0.01em;
+  -webkit-font-smoothing: antialiased;
 }
 
 .container {
   padding: 20px;
 }
 
+/* ============================================================
+   Header
+   ============================================================ */
 header {
   text-align: center;
   margin-bottom: 20px;
   padding-bottom: 12px;
-  border-bottom: 1px solid #2a2a4a;
+  border-bottom: 1px solid var(--border);
 }
 
 header h1 {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
-  color: #a0a0ff;
-  letter-spacing: 0.5px;
+  color: var(--accent-foreground);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
+/* ============================================================
+   State containers
+   ============================================================ */
 .state {
   text-align: center;
 }
@@ -37,27 +79,31 @@ header h1 {
   display: none !important;
 }
 
-/* Status Icons */
+/* ============================================================
+   Status Icons
+   ============================================================ */
 .status-icon {
   font-size: 48px;
   margin-bottom: 12px;
 }
 
 .idle-icon {
-  color: #555;
+  color: var(--muted-foreground);
 }
 
 .detected-icon {
-  color: #4a4aff;
+  color: var(--primary);
   animation: pulse 1.5s infinite;
 }
 
 .recording-icon {
-  color: #ff4444;
+  color: var(--destructive);
   animation: pulse 1.5s infinite;
 }
 
-/* Audio Visualizer */
+/* ============================================================
+   Audio Visualizer
+   ============================================================ */
 .audio-visualizer {
   display: flex;
   align-items: flex-end;
@@ -73,23 +119,24 @@ header h1 {
   height: 3px;
   min-height: 3px;
   border-radius: 2px;
-  background: #4a4aff;
+  background: var(--primary);
   transition: height 0.08s ease-out;
 }
 
-/* When speaking, bars glow */
 .viz-bar.active {
-  background: linear-gradient(to top, #4a4aff, #8a6aff);
-  box-shadow: 0 0 4px rgba(74, 74, 255, 0.4);
+  background: linear-gradient(to top, var(--primary), #818cf8);
+  box-shadow: 0 0 6px rgba(99, 102, 241, 0.45);
 }
 
-/* Source-level indicators (mic + tab) */
+/* ============================================================
+   Source-level indicators (mic + tab)
+   ============================================================ */
 .source-levels {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   justify-content: center;
-  margin-bottom: 8px;
-  padding: 0 20px;
+  margin-bottom: 10px;
+  padding: 0 12px;
 }
 
 .source-level {
@@ -97,21 +144,29 @@ header h1 {
   align-items: center;
   gap: 6px;
   flex: 1;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 5px 8px;
 }
 
+/* Badge-style label for MIC / TAB */
 .source-label {
-  font-size: 9px;
-  font-weight: 600;
-  color: #666;
-  letter-spacing: 0.5px;
-  width: 24px;
-  text-align: right;
+  font-size: 8px;
+  font-weight: 700;
+  color: var(--secondary-foreground);
+  letter-spacing: 0.06em;
+  background: var(--secondary);
+  border-radius: 3px;
+  padding: 2px 5px;
+  flex-shrink: 0;
+  text-align: center;
 }
 
 .source-bar-track {
   flex: 1;
   height: 4px;
-  background: #2a2a4a;
+  background: var(--secondary);
   border-radius: 2px;
   overflow: hidden;
 }
@@ -124,81 +179,144 @@ header h1 {
 }
 
 .mic-bar {
-  background: linear-gradient(to right, #4aff4a, #ffaa00);
+  background: linear-gradient(to right, #4ade80, #facc15);
 }
 
 .tab-bar {
-  background: linear-gradient(to right, #4a4aff, #aa44ff);
+  background: linear-gradient(to right, var(--primary), #a78bfa);
 }
 
+.mute-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0;
+  line-height: 1;
+  opacity: 0.8;
+  transition: opacity 0.15s;
+  flex-shrink: 0;
+}
+
+.mute-btn:hover {
+  opacity: 1;
+}
+
+.mute-btn.muted {
+  opacity: 0.3;
+  filter: grayscale(1);
+}
+
+/* ============================================================
+   Error icon
+   ============================================================ */
 .error-icon {
-  color: #ff6b6b;
+  color: var(--destructive);
   font-size: 36px;
   width: 48px;
   height: 48px;
-  line-height: 48px;
-  border: 2px solid #ff6b6b;
+  line-height: 44px;
+  border: 2px solid var(--destructive);
   border-radius: 50%;
   display: inline-block;
   margin-bottom: 12px;
 }
 
+/* ============================================================
+   Animations
+   ============================================================ */
 @keyframes pulse {
   0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
+  50%       { opacity: 0.4; }
 }
 
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ============================================================
+   Text utilities
+   ============================================================ */
 .status-text {
   font-size: 14px;
-  color: #ccc;
+  color: var(--secondary-foreground);
   margin-bottom: 8px;
 }
 
 .hint {
   font-size: 12px;
-  color: #777;
+  color: var(--muted-foreground);
 }
 
 .timer {
   font-size: 32px;
   font-weight: 300;
   font-family: 'Courier New', monospace;
-  color: #ff6b6b;
+  color: var(--destructive);
   margin: 12px 0 16px;
+  letter-spacing: 0.02em;
 }
 
-/* Buttons */
-.button-group {
-  display: flex;
-  gap: 8px;
-  justify-content: center;
-}
-
+/* ============================================================
+   Buttons — base
+   ============================================================ */
 .btn {
   padding: 10px 20px;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius);
   font-size: 13px;
   font-weight: 500;
+  font-family: inherit;
   cursor: pointer;
-  transition: background 0.2s;
+  transition: background 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
+  letter-spacing: -0.01em;
 }
 
+.btn:active {
+  transform: scale(0.97);
+}
+
+/* Primary */
 .btn-primary {
-  background: #4a4aff;
-  color: white;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  box-shadow: 0 1px 3px rgba(99, 102, 241, 0.25), 0 1px 2px rgba(0, 0, 0, 0.3);
 }
 
 .btn-primary:hover {
-  background: #5c5cff;
+  background: var(--primary-hover);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.35);
+}
+
+.btn-primary:active {
+  transform: scale(0.95);
+  box-shadow: 0 1px 3px rgba(99, 102, 241, 0.2);
 }
 
 .btn-primary:disabled {
-  background: #333;
-  color: #666;
+  background: var(--secondary);
+  color: var(--muted-foreground);
   cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
 }
 
+/* Secondary */
+.btn-secondary {
+  background: var(--secondary);
+  color: var(--secondary-foreground);
+  border: 1px solid var(--border);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+
+.btn-secondary:hover {
+  background: var(--accent);
+  color: var(--accent-foreground);
+  border-color: var(--ring);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+/* Start button (full-width primary variant) */
 .btn-start {
   width: 100%;
   padding: 12px;
@@ -206,50 +324,74 @@ header h1 {
   margin-top: 12px;
 }
 
-.btn-secondary {
-  background: #333;
-  color: #aaa;
-}
-
-.btn-secondary:hover {
-  background: #444;
-}
-
+/* Slack button */
 .btn-slack {
   background: #4a154b;
-  color: white;
+  color: #ffffff;
   width: 100%;
   padding: 12px;
   font-size: 14px;
   margin-top: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
 }
 
 .btn-slack:hover {
-  background: #5c1d5e;
+  background: #61196e;
+  box-shadow: 0 4px 12px rgba(74, 21, 75, 0.45);
 }
 
 .btn-slack:disabled {
-  background: #333;
-  color: #666;
+  background: var(--secondary);
+  color: var(--muted-foreground);
   cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
 }
 
-/* Spinner */
+/* Small variant */
+.btn-sm {
+  padding: 5px 10px;
+  font-size: 11px;
+}
+
+/* Note-prompt sizing helpers */
+.btn-enable-notes {
+  width: 100%;
+  padding: 12px;
+  font-size: 14px;
+}
+
+.btn-skip-notes {
+  width: 100%;
+  padding: 10px;
+  font-size: 13px;
+}
+
+/* ============================================================
+   Button group
+   ============================================================ */
+.button-group {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+
+/* ============================================================
+   Spinner
+   ============================================================ */
 .spinner {
   width: 40px;
   height: 40px;
-  border: 3px solid #333;
-  border-top-color: #4a4aff;
+  border: 3px solid var(--border);
+  border-top-color: var(--primary);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
   margin: 0 auto 16px;
 }
 
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-/* Processing Steps */
+/* ============================================================
+   Processing Steps
+   ============================================================ */
 .progress-steps {
   display: flex;
   align-items: center;
@@ -260,32 +402,39 @@ header h1 {
 
 .step {
   font-size: 11px;
-  padding: 4px 8px;
-  border-radius: 4px;
-  background: #2a2a4a;
-  color: #777;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--secondary);
+  color: var(--muted-foreground);
+  border: 1px solid var(--border);
 }
 
 .step.active {
-  background: #4a4aff;
-  color: white;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  border-color: var(--primary);
+  box-shadow: 0 0 8px rgba(99, 102, 241, 0.4);
 }
 
 .step.done {
-  background: #2d6a2d;
-  color: #8f8;
+  background: rgba(22, 163, 74, 0.15);
+  color: #4ade80;
+  border-color: #16a34a;
 }
 
 .step-arrow {
-  color: #555;
+  color: var(--muted-foreground);
   font-size: 11px;
 }
 
-/* Summary */
+/* ============================================================
+   Summary
+   ============================================================ */
 .summary-title {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
-  color: #e0e0ff;
+  color: var(--foreground);
   margin-bottom: 12px;
   text-align: left;
 }
@@ -303,18 +452,19 @@ header h1 {
 }
 
 .summary-section h3 {
-  font-size: 11px;
+  font-size: 10px;
+  font-weight: 600;
   text-transform: uppercase;
-  color: #888;
+  color: var(--muted-foreground);
   margin-bottom: 4px;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.06em;
 }
 
 .summary-section p,
 .summary-section li {
   font-size: 13px;
-  line-height: 1.5;
-  color: #ccc;
+  line-height: 1.55;
+  color: var(--secondary-foreground);
 }
 
 .summary-section ul {
@@ -324,10 +474,12 @@ header h1 {
 
 .summary-section li::before {
   content: "• ";
-  color: #4a4aff;
+  color: var(--primary);
 }
 
-/* Call Type Selector */
+/* ============================================================
+   Call Type Selector
+   ============================================================ */
 .call-type-selector {
   display: flex;
   align-items: center;
@@ -337,20 +489,32 @@ header h1 {
 
 .call-type-selector label {
   font-size: 12px;
-  color: #888;
+  color: var(--muted-foreground);
+  white-space: nowrap;
 }
 
 .call-type-selector select {
   flex: 1;
   padding: 6px 10px;
-  background: #2a2a4a;
-  color: #e0e0e0;
-  border: 1px solid #3a3a5a;
-  border-radius: 4px;
+  background: var(--input);
+  color: var(--foreground);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
   font-size: 12px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  cursor: pointer;
 }
 
-/* Mic Toggle */
+.call-type-selector select:focus {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+}
+
+/* ============================================================
+   Mic Toggle
+   ============================================================ */
 .mic-toggle {
   margin: 12px 0 4px;
   text-align: left;
@@ -362,36 +526,47 @@ header h1 {
   gap: 8px;
   cursor: pointer;
   padding: 8px 12px;
-  background: #2a2a4a;
-  border-radius: 6px;
+  background: var(--secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.toggle-label:hover {
+  background: var(--accent);
+  border-color: var(--ring);
 }
 
 .toggle-label input[type="checkbox"] {
   width: 16px;
   height: 16px;
-  accent-color: #4a4aff;
+  accent-color: var(--primary);
   cursor: pointer;
 }
 
 .toggle-text {
   font-size: 13px;
-  color: #ccc;
+  color: var(--foreground);
 }
 
 .toggle-hint {
   font-size: 11px;
-  color: #666;
-  margin-top: 4px;
+  color: var(--muted-foreground);
+  margin-top: 5px;
   padding-left: 4px;
+  line-height: 1.4;
 }
 
-/* Note-Taking Prompt */
+/* ============================================================
+   Note-Taking Prompt Card  (shadcn Dialog feel)
+   ============================================================ */
 .note-prompt-card {
-  background: #22224a;
-  border: 1px solid #3a3a6a;
-  border-radius: 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
   padding: 24px 20px;
   text-align: center;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4), 0 1px 4px rgba(0, 0, 0, 0.3);
 }
 
 .note-prompt-icon {
@@ -402,21 +577,21 @@ header h1 {
 .note-prompt-title {
   font-size: 16px;
   font-weight: 600;
-  color: #e0e0ff;
+  color: var(--foreground);
   margin-bottom: 8px;
 }
 
 .note-prompt-text {
   font-size: 14px;
-  color: #ccc;
+  color: var(--secondary-foreground);
   margin-bottom: 6px;
 }
 
 .note-prompt-hint {
   font-size: 11px;
-  color: #777;
+  color: var(--muted-foreground);
   margin-bottom: 20px;
-  line-height: 1.4;
+  line-height: 1.5;
 }
 
 .note-prompt-actions {
@@ -425,59 +600,52 @@ header h1 {
   gap: 8px;
 }
 
-.btn-enable-notes {
-  width: 100%;
-  padding: 12px;
-  font-size: 14px;
-}
-
-.btn-skip-notes {
-  width: 100%;
-  padding: 10px;
-  font-size: 13px;
-}
-
-/* Error */
+/* ============================================================
+   Error text
+   ============================================================ */
 .error-text {
-  color: #ff6b6b;
+  color: var(--destructive);
 }
 
-/* Scrollbar */
+/* ============================================================
+   Scrollbar
+   ============================================================ */
 .summary-content::-webkit-scrollbar {
   width: 4px;
 }
 
 .summary-content::-webkit-scrollbar-track {
-  background: #1a1a2e;
+  background: var(--background);
 }
 
 .summary-content::-webkit-scrollbar-thumb {
-  background: #3a3a5a;
+  background: var(--border);
   border-radius: 2px;
 }
 
-/* ---- Recovery Banner ---- */
+.summary-content::-webkit-scrollbar-thumb:hover {
+  background: var(--accent);
+}
+
+/* ============================================================
+   Recovery Banner  (shadcn destructive variant)
+   ============================================================ */
 .recovery-banner {
-  background: #2a1a1a;
-  border: 1px solid #ff6b6b;
-  border-radius: 8px;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid var(--destructive);
+  border-radius: var(--radius);
   padding: 10px 12px;
   margin-bottom: 12px;
 }
 
 .recovery-message {
   font-size: 11px;
-  color: #ffaaaa;
+  color: #fca5a5;
   margin-bottom: 8px;
-  line-height: 1.4;
+  line-height: 1.45;
 }
 
 .recovery-actions {
   display: flex;
   gap: 8px;
-}
-
-.btn-sm {
-  padding: 5px 10px;
-  font-size: 11px;
 }

@@ -292,6 +292,28 @@ elements.btnStart.addEventListener('click', async () => {
   setTimeout(() => window.close(), 300);
 });
 
+// ---- Mic / Tab mute toggles ----
+
+document.getElementById('btn-mute-mic').addEventListener('click', () => {
+  const btn = document.getElementById('btn-mute-mic');
+  chrome.runtime.sendMessage({ type: 'TOGGLE_MIC_MUTE' }, (resp) => {
+    const muted = resp?.muted ?? !btn.classList.contains('muted');
+    btn.classList.toggle('muted', muted);
+    btn.title = muted ? 'Unmute microphone' : 'Mute microphone';
+    btn.textContent = muted ? '🔇' : '🎤';
+  });
+});
+
+document.getElementById('btn-mute-tab').addEventListener('click', () => {
+  const btn = document.getElementById('btn-mute-tab');
+  chrome.runtime.sendMessage({ type: 'TOGGLE_TAB_MUTE' }, (resp) => {
+    const muted = resp?.muted ?? !btn.classList.contains('muted');
+    btn.classList.toggle('muted', muted);
+    btn.title = muted ? 'Unmute tab audio' : 'Mute tab audio';
+    btn.textContent = muted ? '🔇' : '🔊';
+  });
+});
+
 elements.btnStop.addEventListener('click', () => {
   elements.btnStop.disabled = true;
   elements.btnStop.textContent = 'Stopping...';
@@ -499,12 +521,20 @@ function updateCalendarBar(connected) {
 }
 
 document.getElementById('btn-calendar-toggle').addEventListener('click', () => {
+  const btn = document.getElementById('btn-calendar-toggle');
+  btn.disabled = true;
   chrome.runtime.sendMessage({ type: 'GET_CALENDAR_STATUS' }, (res) => {
     const connected = res?.connected;
     const type = connected ? 'DISCONNECT_CALENDAR' : 'CONNECT_CALENDAR';
     chrome.runtime.sendMessage({ type }, (resp) => {
+      btn.disabled = false;
       if (resp?.success) {
         updateCalendarBar(!connected);
+      } else if (!connected) {
+        const text = document.getElementById('calendar-status-text');
+        text.textContent = '📅 Calendar: Auth failed — check OAuth setup';
+        text.style.color = '#ff6b6b';
+        setTimeout(() => updateCalendarBar(false), 3000);
       }
     });
   });
