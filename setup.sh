@@ -12,6 +12,14 @@ if [ -z "$NODE_VERSION" ] || [ "$NODE_VERSION" -lt 18 ]; then
 fi
 echo "✓ Node.js $(node -v) detected"
 
+# Check ffmpeg (optional but recommended for silence trimming)
+if command -v ffmpeg &>/dev/null; then
+  echo "✓ ffmpeg detected — silence trimming enabled"
+else
+  echo "⚠️  ffmpeg not found — silence trimming will be skipped (audio will be sent as-is)"
+  echo "   Install: brew install ffmpeg  (macOS) | apt install ffmpeg  (Ubuntu)"
+fi
+
 # Create .env if it doesn't exist
 if [ ! -f ".env" ]; then
   cp .env.example .env

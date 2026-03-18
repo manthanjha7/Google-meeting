@@ -2,6 +2,9 @@ FROM node:20-alpine
 
 WORKDIR /app
 
+# Install ffmpeg for audio format conversion (WebM → WAV for VAD silence stripping)
+RUN apk add --no-cache ffmpeg
+
 # Copy package files and install production deps only
 COPY package*.json ./
 RUN npm ci --omit=dev

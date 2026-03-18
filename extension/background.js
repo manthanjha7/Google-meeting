@@ -356,7 +356,11 @@ async function runChunkedPipeline(audioChunks) {
     const transcribe1Data = await transcribe1Res.json();
     if (!transcribe1Res.ok) throw new Error(transcribe1Data.error || 'Transcription failed for chunk 1');
 
-    let mergedTranscript = transcribe1Data.transcript || '';
+    // Prefix Part 1 marker so the LLM knows speaker IDs are scoped to each part
+    const totalChunks = audioChunks.length;
+    let mergedTranscript = totalChunks > 1
+      ? `[--- Part 1 of ${totalChunks} begins — speaker IDs restart each part ---]\n` + (transcribe1Data.transcript || '')
+      : (transcribe1Data.transcript || '');
 
     // Step 3: Upload and transcribe remaining chunks
     for (let i = 1; i < audioChunks.length; i++) {
@@ -386,7 +390,7 @@ async function runChunkedPipeline(audioChunks) {
       if (!chunkTransRes.ok) throw new Error(chunkTransData.error || `Transcription failed for chunk ${i + 1}`);
 
       if (chunkTransData.transcript) {
-        mergedTranscript += '\n' + chunkTransData.transcript;
+        mergedTranscript += `\n\n[--- Part ${i + 1} of ${totalChunks} begins — speaker IDs restart ---]\n` + chunkTransData.transcript;
       }
     }
 
