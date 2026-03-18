@@ -378,7 +378,16 @@ elements.btnRetry.addEventListener('click', () => {
 
 elements.btnReset.addEventListener('click', () => {
   chrome.runtime.sendMessage({ type: 'RESET' });
-  // Don't hardcode idle — background will redetect meeting and update state
+  stopTimer();
+});
+
+document.getElementById('btn-reset-processing').addEventListener('click', () => {
+  chrome.runtime.sendMessage({ type: 'RESET' });
+  stopTimer();
+});
+
+document.getElementById('btn-new-recording').addEventListener('click', () => {
+  chrome.runtime.sendMessage({ type: 'RESET' });
   stopTimer();
 });
 
