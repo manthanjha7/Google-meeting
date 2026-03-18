@@ -167,6 +167,16 @@ async function updateSpeakerNames(id, speakerNames) {
   return getMeeting(id);
 }
 
+async function updateCalendarData(id, { eventId, attendees, description } = {}) {
+  const db = await getDb();
+  db.run(
+    `UPDATE meetings SET calendar_event_id = ?, calendar_attendees = ?, calendar_description = ?, updated_at = datetime('now') WHERE id = ?`,
+    [eventId || null, attendees ? JSON.stringify(attendees) : null, description || null, id]
+  );
+  saveDb();
+  return getMeeting(id);
+}
+
 async function saveSegments(meetingId, segments) {
   const db = await getDb();
   // Clear existing segments for this meeting first
@@ -212,4 +222,5 @@ module.exports = {
   updateSpeakerNames,
   saveSegments,
   getSegments,
+  updateCalendarData,
 };

@@ -479,5 +479,41 @@ chrome.storage.local.get('recoveryNotice', (result) => {
   }
 });
 
+// ---- Google Calendar ----
+
+function updateCalendarBar(connected) {
+  const bar = document.getElementById('calendar-bar');
+  const text = document.getElementById('calendar-status-text');
+  const btn = document.getElementById('btn-calendar-toggle');
+  if (!bar) return;
+  bar.style.display = 'flex';
+  if (connected) {
+    text.textContent = '📅 Calendar: Connected';
+    text.style.color = '#7070ff';
+    btn.textContent = 'Disconnect';
+  } else {
+    text.textContent = '📅 Calendar: Not connected';
+    text.style.color = '#888';
+    btn.textContent = 'Connect';
+  }
+}
+
+document.getElementById('btn-calendar-toggle').addEventListener('click', () => {
+  chrome.runtime.sendMessage({ type: 'GET_CALENDAR_STATUS' }, (res) => {
+    const connected = res?.connected;
+    const type = connected ? 'DISCONNECT_CALENDAR' : 'CONNECT_CALENDAR';
+    chrome.runtime.sendMessage({ type }, (resp) => {
+      if (resp?.success) {
+        updateCalendarBar(!connected);
+      }
+    });
+  });
+});
+
+// Load calendar status on popup open
+chrome.runtime.sendMessage({ type: 'GET_CALENDAR_STATUS' }, (res) => {
+  updateCalendarBar(!!res?.connected);
+});
+
 // Initial sync
 syncState();

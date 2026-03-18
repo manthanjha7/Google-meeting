@@ -218,6 +218,22 @@ async function runPipeline(audioBase64) {
     const { meetingId } = uploadData;
     if (!meetingId) throw new Error('Server did not return a meeting ID');
 
+    // Optional: Enrich with Google Calendar data (best-effort, non-blocking)
+    if (meetUrl) {
+      fetchCalendarEventForMeet(meetUrl).then(async (calEvent) => {
+        if (calEvent) {
+          try {
+            await fetch(`${API_BASE}/calendar/enrich`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ meetingId, ...calEvent }),
+            });
+            console.log('[Finrep] Calendar enrichment applied:', calEvent.title);
+          } catch (e) { /* ignore */ }
+        }
+      }).catch(() => {});
+    }
+
     // Step 2: Transcribe
     await setState('processing', { step: 'transcribing', meetingId });
     const transcribeRes = await fetch(`${API_BASE}/transcribe`, {
@@ -378,6 +394,93 @@ function base64ToBlob(base64, mimeType) {
     byteArrays.push(new Uint8Array(byteNumbers));
   }
   return new Blob(byteArrays, { type: mimeType });
+}
+
+// ---- Google Calendar Integration ----
+
+/**
+ * Fetch the Google Calendar event matching a Meet URL.
+ * Returns { eventId, title, attendees, description } or null if no match / not connected.
+ */
+async function fetchCalendarEventForMeet(meetUrl) {
+  try {
+    const token = await new Promise((resolve) => {
+      chrome.identity.getAuthToken({ interactive: false }, (t) => resolve(t || null));
+    });
+    if (!token) return null; // Not signed in / permission not granted yet
+
+    // Search events in the next 24h and past 1h that contain the Meet URL
+    const now = new Date();
+    const timeMin = new Date(now.getTime() - 60 * 60 * 1000).toISOString();
+    const timeMax = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
+    const url = `https://www.googleapis.com/calendar/v3/events?calendarId=primary&timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}&singleEvents=true&maxResults=20`;
+
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return null;
+
+    const data = await res.json();
+    const items = data.items || [];
+
+    // Find event whose conference/hangout link matches the Meet URL
+    const meetId = meetUrl.replace(/[?#].*$/, '').replace(/\/$/, '').split('/').pop();
+    const match = items.find((event) => {
+      const confUrl = event.conferenceData?.entryPoints?.find((ep) => ep.entryPointType === 'video')?.uri || '';
+      const hangout = event.hangoutLink || '';
+      return confUrl.includes(meetId) || hangout.includes(meetId);
+    });
+
+    if (!match) return null;
+
+    return {
+      eventId: match.id,
+      title: match.summary || null,
+      attendees: (match.attendees || []).map((a) => a.displayName || a.email).filter(Boolean),
+      description: match.description || null,
+    };
+  } catch (e) {
+    console.warn('[Finrep] Calendar fetch failed:', e.message);
+    return null;
+  }
+}
+
+/**
+ * Connect Google Calendar — requests interactive OAuth consent.
+ * Returns true if successfully authorized.
+ */
+async function connectGoogleCalendar() {
+  return new Promise((resolve) => {
+    chrome.identity.getAuthToken({ interactive: true }, (token) => {
+      if (chrome.runtime.lastError) {
+        console.warn('[Finrep] Calendar connect failed:', chrome.runtime.lastError.message);
+        resolve(false);
+      } else {
+        console.log('[Finrep] Google Calendar connected');
+        chrome.storage.local.set({ calendarConnected: true });
+        resolve(!!token);
+      }
+    });
+  });
+}
+
+/**
+ * Disconnect Google Calendar — revokes cached token.
+ */
+async function disconnectGoogleCalendar() {
+  return new Promise((resolve) => {
+    chrome.identity.getAuthToken({ interactive: false }, (token) => {
+      if (token) {
+        chrome.identity.removeCachedAuthToken({ token }, () => {
+          chrome.storage.local.remove('calendarConnected');
+          resolve(true);
+        });
+      } else {
+        chrome.storage.local.remove('calendarConnected');
+        resolve(true);
+      }
+    });
+  });
 }
 
 // ---- Re-detect Meeting ----
@@ -614,6 +717,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       clearRecoveryIdb();
       chrome.storage.local.remove('recoveryNotice');
       break;
+
+    case 'CONNECT_CALENDAR':
+      connectGoogleCalendar().then((ok) => sendResponse({ success: ok }));
+      return true;
+
+    case 'DISCONNECT_CALENDAR':
+      disconnectGoogleCalendar().then(() => sendResponse({ success: true }));
+      return true;
+
+    case 'GET_CALENDAR_STATUS':
+      chrome.storage.local.get('calendarConnected', (result) => {
+        sendResponse({ connected: !!result.calendarConnected });
+      });
+      return true;
 
     case 'RESET':
       closeOffscreenDocument();
