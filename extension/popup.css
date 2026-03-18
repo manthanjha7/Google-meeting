@@ -455,3 +455,29 @@ header h1 {
   background: #3a3a5a;
   border-radius: 2px;
 }
+
+/* ---- Recovery Banner ---- */
+.recovery-banner {
+  background: #2a1a1a;
+  border: 1px solid #ff6b6b;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+
+.recovery-message {
+  font-size: 11px;
+  color: #ffaaaa;
+  margin-bottom: 8px;
+  line-height: 1.4;
+}
+
+.recovery-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-sm {
+  padding: 5px 10px;
+  font-size: 11px;
+}

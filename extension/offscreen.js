@@ -36,6 +36,62 @@ let chunkInterval = null;
 let completedChunks = []; // Array of base64 audio strings
 let recordingStream = null; // Persist across chunk boundaries
 
+// ---- IndexedDB: incremental audio chunk persistence for crash recovery ----
+
+const IDB_NAME = 'finrep-recording';
+const IDB_STORE = 'chunks';
+let idb = null;
+
+function openIdb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(IDB_NAME, 1);
+    req.onupgradeneeded = (e) => {
+      e.target.result.createObjectStore(IDB_STORE, { keyPath: 'id', autoIncrement: true });
+    };
+    req.onsuccess = (e) => resolve(e.target.result);
+    req.onerror = (e) => reject(e.target.error);
+  });
+}
+
+async function getIdb() {
+  if (!idb) idb = await openIdb();
+  return idb;
+}
+
+async function appendChunkToIdb(base64) {
+  try {
+    const db = await getIdb();
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).add({ base64, ts: Date.now() });
+  } catch (e) {
+    console.warn('[Finrep] IDB write failed:', e.message);
+  }
+}
+
+async function clearIdb() {
+  try {
+    const db = await getIdb();
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).clear();
+  } catch (e) {
+    console.warn('[Finrep] IDB clear failed:', e.message);
+  }
+}
+
+async function getAllIdbChunks() {
+  try {
+    const db = await getIdb();
+    return new Promise((resolve) => {
+      const tx = db.transaction(IDB_STORE, 'readonly');
+      const req = tx.objectStore(IDB_STORE).getAll();
+      req.onsuccess = () => resolve(req.result.map(r => r.base64));
+      req.onerror = () => resolve([]);
+    });
+  } catch (e) {
+    return [];
+  }
+}
+
 // ---- Live transcript: second recorder for 15-second preview chunks ----
 const LIVE_CHUNK_MS = 15000; // 15 seconds per live preview chunk
 let liveRecorder = null;
@@ -257,6 +313,8 @@ function startNewRecorderChunk() {
   mediaRecorder.ondataavailable = (event) => {
     if (event.data.size > 0) {
       recordedChunks.push(event.data);
+      // Persist each chunk to IDB for crash recovery
+      blobToBase64(event.data).then((b64) => appendChunkToIdb(b64));
     }
   };
 
@@ -562,6 +620,8 @@ function stopRecording() {
         });
       }
 
+      // Clear IDB — recording completed successfully
+      await clearIdb();
       cleanupStreams();
     };
 
@@ -602,6 +662,8 @@ function cancelRecording() {
 
   recordedChunks = [];
   completedChunks = [];
+  // Clear IDB — recording was cancelled
+  clearIdb();
   cleanupStreams();
 }
 

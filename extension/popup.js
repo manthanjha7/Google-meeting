@@ -413,6 +413,13 @@ chrome.storage.onChanged.addListener((changes) => {
   if (changes.liveTranscript) {
     updateLiveTranscript(changes.liveTranscript.newValue);
   }
+  // Show recovery banner if set by background on startup
+  if (changes.recoveryNotice && changes.recoveryNotice.newValue) {
+    const notice = changes.recoveryNotice.newValue;
+    if (Date.now() - notice.timestamp < 10 * 60 * 1000) {
+      showRecoveryBanner(notice);
+    }
+  }
 });
 
 // Restore mic toggle preference (defaults to ON so user's voice is captured)
@@ -420,16 +427,55 @@ chrome.storage.local.get('includeMic', (result) => {
   elements.toggleMic.checked = result.includeMic !== undefined ? result.includeMic : true;
 });
 
-// Check for recovery notices
+// ---- Recovery Banner ----
+
+function showRecoveryBanner(notice) {
+  const banner = document.getElementById('recovery-banner');
+  const msg = document.getElementById('recovery-message');
+  const recoverBtn = document.getElementById('btn-recover');
+  if (!banner || !msg) return;
+
+  let text = notice.message;
+  if (notice.meetTitle) text += ` (${notice.meetTitle})`;
+  msg.textContent = text;
+
+  // Only show recover button if there's actual audio to recover
+  recoverBtn.style.display = notice.hasRecoverableAudio ? '' : 'none';
+  banner.classList.remove('hidden');
+}
+
+document.getElementById('btn-recover').addEventListener('click', () => {
+  const btn = document.getElementById('btn-recover');
+  btn.disabled = true;
+  btn.textContent = 'Recovering...';
+  chrome.runtime.sendMessage({ type: 'RECOVER_RECORDING' }, (response) => {
+    if (response?.success) {
+      document.getElementById('recovery-banner').classList.add('hidden');
+      chrome.storage.local.remove('recoveryNotice');
+      syncState();
+    } else {
+      btn.textContent = 'Recovery Failed';
+      btn.disabled = false;
+    }
+  });
+});
+
+document.getElementById('btn-dismiss-recovery').addEventListener('click', () => {
+  document.getElementById('recovery-banner').classList.add('hidden');
+  chrome.runtime.sendMessage({ type: 'DISMISS_RECOVERY' });
+});
+
+// Check for recovery notices on popup open
 chrome.storage.local.get('recoveryNotice', (result) => {
   if (result.recoveryNotice) {
     const notice = result.recoveryNotice;
     // Show if less than 10 minutes old
     if (Date.now() - notice.timestamp < 10 * 60 * 1000) {
-      const msg = notice.message + (notice.meetTitle ? `\n\nMeeting: ${notice.meetTitle}` : '');
-      alert(msg);
+      showRecoveryBanner(notice);
+    } else {
+      chrome.storage.local.remove('recoveryNotice');
+      chrome.runtime.sendMessage({ type: 'DISMISS_RECOVERY' });
     }
-    chrome.storage.local.remove('recoveryNotice');
   }
 });
 

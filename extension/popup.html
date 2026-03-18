@@ -12,6 +12,15 @@
       <h1>Finrep Meeting Intelligence</h1>
     </header>
 
+    <!-- Recovery Banner (shown when recording was interrupted with IDB data) -->
+    <div id="recovery-banner" class="recovery-banner hidden">
+      <p id="recovery-message" class="recovery-message"></p>
+      <div class="recovery-actions">
+        <button id="btn-recover" class="btn btn-primary btn-sm">Recover Recording</button>
+        <button id="btn-dismiss-recovery" class="btn btn-secondary btn-sm">Dismiss</button>
+      </div>
+    </div>
+
     <!-- Idle State -->
     <div id="state-idle" class="state">
       <div class="status-icon idle-icon">&#9679;</div>

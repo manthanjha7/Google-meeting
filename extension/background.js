@@ -2,6 +2,69 @@
 
 const API_BASE = 'http://localhost:3001/api';
 
+// ---- IndexedDB Recovery (same DB as offscreen.js) ----
+
+const IDB_NAME = 'finrep-recording';
+const IDB_STORE = 'chunks';
+
+function openRecoveryIdb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(IDB_NAME, 1);
+    req.onupgradeneeded = (e) => {
+      e.target.result.createObjectStore(IDB_STORE, { keyPath: 'id', autoIncrement: true });
+    };
+    req.onsuccess = (e) => resolve(e.target.result);
+    req.onerror = (e) => reject(e.target.error);
+  });
+}
+
+async function getRecoveryChunks() {
+  try {
+    const db = await openRecoveryIdb();
+    return new Promise((resolve) => {
+      const tx = db.transaction(IDB_STORE, 'readonly');
+      const req = tx.objectStore(IDB_STORE).getAll();
+      req.onsuccess = () => { db.close(); resolve(req.result.map((r) => r.base64)); };
+      req.onerror = () => { db.close(); resolve([]); };
+    });
+  } catch (e) {
+    return [];
+  }
+}
+
+async function clearRecoveryIdb() {
+  try {
+    const db = await openRecoveryIdb();
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).clear();
+    tx.oncomplete = () => db.close();
+  } catch (e) { /* ignore */ }
+}
+
+/**
+ * Combine multiple base64-encoded WebM segments into one base64 string.
+ * Each segment from ondataavailable can be concatenated — WebM is streamable.
+ */
+function combineBase64Chunks(base64Chunks) {
+  const arrays = base64Chunks.map((b64) => {
+    const binary = atob(b64);
+    const arr = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) arr[i] = binary.charCodeAt(i);
+    return arr;
+  });
+  const totalLen = arrays.reduce((sum, a) => sum + a.length, 0);
+  const combined = new Uint8Array(totalLen);
+  let offset = 0;
+  for (const arr of arrays) { combined.set(arr, offset); offset += arr.length; }
+  // Encode back to base64 in safe chunks to avoid call stack overflow
+  let binary = '';
+  const step = 8192;
+  for (let i = 0; i < combined.length; i += step) {
+    binary += String.fromCharCode(...combined.slice(i, i + step));
+  }
+  return btoa(binary);
+}
+
 // Extension state: 'idle' | 'meet-detected' | 'recording' | 'processing' | 'summary-ready' | 'error'
 let currentState = 'idle';
 let recordingTabId = null;
@@ -527,6 +590,31 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       });
       return true;
 
+    case 'RECOVER_RECORDING':
+      (async () => {
+        try {
+          const chunks = await getRecoveryChunks();
+          if (chunks.length === 0) {
+            sendResponse({ success: false, error: 'No recoverable audio found in storage' });
+            return;
+          }
+          await clearRecoveryIdb();
+          await chrome.storage.local.remove('recoveryNotice');
+          const combined = combineBase64Chunks(chunks);
+          runPipeline(combined);
+          sendResponse({ success: true, chunkCount: chunks.length });
+        } catch (err) {
+          console.error('[Finrep] Recovery failed:', err);
+          sendResponse({ success: false, error: err.message });
+        }
+      })();
+      return true; // async sendResponse
+
+    case 'DISMISS_RECOVERY':
+      clearRecoveryIdb();
+      chrome.storage.local.remove('recoveryNotice');
+      break;
+
     case 'RESET':
       closeOffscreenDocument();
       recordingTabId = null;
@@ -554,15 +642,22 @@ async function restoreState() {
   }
 
   if (currentState === 'recording') {
-    // Recording was in progress when extension restarted — it's lost
-    // Notify user and reset to idle
-    console.warn('[Finrep] Extension restarted while recording was in progress. Recording data lost.');
+    // Recording was interrupted — check IDB for recoverable audio chunks
+    console.warn('[Finrep] Extension restarted while recording was in progress.');
+    const idbChunks = await getRecoveryChunks();
+    const hasRecoverableAudio = idbChunks.length > 0;
+    const message = hasRecoverableAudio
+      ? `Recording was interrupted. ${idbChunks.length} audio chunk(s) were saved — you can recover the partial recording.`
+      : 'The extension restarted while recording was in progress. The recording was lost.';
+    console.log(`[Finrep] IDB recovery check: ${idbChunks.length} chunks found`);
     await chrome.storage.local.set({
       recoveryNotice: {
-        message: 'The extension was restarted while recording was in progress. The recording was lost.',
+        message,
         timestamp: Date.now(),
         meetTitle: meetTitle,
         meetUrl: meetUrl,
+        hasRecoverableAudio,
+        chunkCount: idbChunks.length,
       },
     });
     clearBadge();
