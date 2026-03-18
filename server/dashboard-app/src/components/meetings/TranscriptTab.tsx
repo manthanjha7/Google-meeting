@@ -31,16 +31,34 @@ interface TranscriptLine {
   timestamp: string
   timeSecs: number
   text: string
+  isPartMarker?: boolean
+  partNumber?: number
 }
+
+const PART_MARKER_RE = /\[--- Part (\d+) of (\d+) begins/
 
 function parseTranscript(raw: string, speakerNames: Record<string, string>): TranscriptLine[] {
   const lines: TranscriptLine[] = []
   const lineRegex = /^\[(\d+:\d+(?::\d+)?)\]\s+(SPEAKER_\d+|\d+):(.*)$/
+
+  // Detect if this transcript has multiple parts (determines key scoping)
+  const hasMultipleParts = PART_MARKER_RE.test(raw)
+  let currentPart = 1
+
   for (const line of raw.split('\n')) {
+    const partMatch = line.match(PART_MARKER_RE)
+    if (partMatch) {
+      currentPart = parseInt(partMatch[1])
+      lines.push({ speaker: '', displayName: '', timestamp: '', timeSecs: -1, text: line.trim(), isPartMarker: true, partNumber: currentPart })
+      continue
+    }
+
     const m = line.match(lineRegex)
     if (m) {
       const [, ts, speaker, text] = m
-      const displayName = speakerNames?.[speaker] || speaker
+      // For multi-part transcripts, look up scoped key first (p1:SPEAKER_0), then flat key
+      const scopedKey = hasMultipleParts ? `p${currentPart}:${speaker}` : speaker
+      const displayName = speakerNames?.[scopedKey] || speakerNames?.[speaker] || speaker
       lines.push({ speaker, displayName, timestamp: ts, timeSecs: parseTimestamp(ts), text: text.trim() })
     } else if (line.trim()) {
       lines.push({ speaker: '', displayName: '', timestamp: '', timeSecs: -1, text: line.trim() })
@@ -121,6 +139,20 @@ export function TranscriptTab({ meeting, onSeek, onOpenSpeakers, audioRef }: Pro
       <div className="rounded-lg border border-border bg-card/60 px-2 py-3 flex flex-col gap-0.5">
         {pageLines.map((line, i) => {
           const globalIdx = pageOffset + i
+
+          // Part boundary marker — render as a full-width divider
+          if (line.isPartMarker) {
+            return (
+              <div key={globalIdx} className="flex items-center gap-2 my-2 px-2">
+                <div className="flex-1 h-px bg-border" />
+                <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider whitespace-nowrap">
+                  Part {line.partNumber} — speaker IDs restart
+                </span>
+                <div className="flex-1 h-px bg-border" />
+              </div>
+            )
+          }
+
           const isActive = globalIdx === activeGlobalIndex
           const color = line.speaker ? getSpeakerColor(line.speaker, colorMap) : ''
 
