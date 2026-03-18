@@ -2,7 +2,7 @@ const initSqlJs = require('sql.js');
 const fs = require('fs');
 const path = require('path');
 
-const DB_PATH = path.join(__dirname, '..', '..', 'meetings.db');
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', '..', 'meetings.db');
 const MIGRATIONS_DIR = path.join(__dirname, 'migrations');
 
 let db;

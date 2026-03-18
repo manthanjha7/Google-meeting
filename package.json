@@ -6,7 +6,8 @@
   "scripts": {
     "server": "node server/index.js",
     "dev": "node --watch server/index.js",
-    "test": "jest --testPathPatterns=server/__tests__ --forceExit"
+    "test": "jest --testPathPatterns=server/__tests__ --forceExit",
+    "package-extension": "node scripts/package-extension.js"
   },
   "jest": {
     "testEnvironment": "node",
@@ -21,6 +22,8 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.0",
+    "express-rate-limit": "^8.3.1",
+    "helmet": "^8.1.0",
     "multer": "^1.4.5-lts.1",
     "onnxruntime-node": "^1.24.3",
     "openai": "^6.32.0",

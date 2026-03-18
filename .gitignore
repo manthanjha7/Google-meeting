@@ -3,6 +3,8 @@ dist/
 extension/popup-build/
 extension/popup-src/node_modules/
 .claude/
+extension.zip
+data/
 .env
 *.mp3
 *.wav

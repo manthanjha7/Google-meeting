@@ -1,9 +1,11 @@
 // Background service worker — orchestrates recording, pipeline, and state management
 
 let API_BASE = 'http://localhost:3001/api';
-// Allow runtime override via chrome.storage (e.g. for staging/prod deployments)
-chrome.storage.local.get('apiBase', (result) => {
+let API_SECRET = '';
+// Allow runtime override via chrome.storage (set during team onboarding)
+chrome.storage.local.get(['apiBase', 'apiSecret'], (result) => {
   if (result.apiBase) API_BASE = result.apiBase;
+  if (result.apiSecret) API_SECRET = result.apiSecret;
 });
 
 // ---- IndexedDB Recovery (same DB as offscreen.js) ----
@@ -145,8 +147,11 @@ async function closeOffscreenDocument() {
 async function fetchWithTimeout(url, options = {}, timeoutMs = 60000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  // Inject API key header on every request if configured
+  const headers = new Headers(options.headers || {});
+  if (API_SECRET) headers.set('x-api-key', API_SECRET);
   try {
-    const res = await fetch(url, { ...options, signal: controller.signal });
+    const res = await fetch(url, { ...options, headers, signal: controller.signal });
     clearTimeout(timer);
     return res;
   } catch (err) {
@@ -154,6 +159,14 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 60000) {
     if (err.name === 'AbortError') throw new Error(`Request timed out after ${timeoutMs / 1000}s: ${url}`);
     throw err;
   }
+}
+
+// ---- Authenticated API fetch helper ----
+// All calls to API_BASE should go through this so the X-API-Key header is always present.
+function apiFetch(path, options = {}) {
+  const headers = new Headers(options.headers || {});
+  if (API_SECRET) headers.set('x-api-key', API_SECRET);
+  return fetch(`${API_BASE}${path}`, { ...options, headers });
 }
 
 // ---- Recording Control ----
@@ -249,7 +262,7 @@ async function runPipeline(audioBase64) {
         try {
           const calEvent = await fetchCalendarEventForMeet(meetUrl);
           if (calEvent) {
-            await fetch(`${API_BASE}/calendar/enrich`, {
+            await apiFetch('/calendar/enrich', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ meetingId, ...calEvent }),
@@ -323,7 +336,7 @@ async function runChunkedPipeline(audioChunks) {
     if (meetTitle) firstForm.append('meetTitle', meetTitle);
     if (meetUrl) firstForm.append('meetUrl', meetUrl);
 
-    const uploadRes = await fetch(`${API_BASE}/upload`, {
+    const uploadRes = await apiFetch('/upload', {
       method: 'POST',
       body: firstForm,
     });
@@ -335,7 +348,7 @@ async function runChunkedPipeline(audioChunks) {
 
     // Step 2: Transcribe first chunk
     await setState('processing', { step: `transcribing chunk 1/${audioChunks.length}`, meetingId });
-    const transcribe1Res = await fetch(`${API_BASE}/transcribe`, {
+    const transcribe1Res = await apiFetch('/transcribe', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ meetingId }),
@@ -354,7 +367,7 @@ async function runChunkedPipeline(audioChunks) {
       chunkForm.append('audio', chunkBlob, `meeting_chunk_${i + 1}.webm`);
       chunkForm.append('durationSeconds', '0'); // duration already tracked on main meeting
 
-      const chunkUploadRes = await fetch(`${API_BASE}/upload`, {
+      const chunkUploadRes = await apiFetch('/upload', {
         method: 'POST',
         body: chunkForm,
       });
@@ -364,7 +377,7 @@ async function runChunkedPipeline(audioChunks) {
       const chunkMeetingId = chunkUploadData.meetingId;
 
       await setState('processing', { step: `transcribing chunk ${i + 1}/${audioChunks.length}`, meetingId });
-      const chunkTransRes = await fetch(`${API_BASE}/transcribe`, {
+      const chunkTransRes = await apiFetch('/transcribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ meetingId: chunkMeetingId }),
@@ -378,7 +391,7 @@ async function runChunkedPipeline(audioChunks) {
     }
 
     // Step 4: Update the main meeting with the merged transcript
-    await fetch(`${API_BASE}/transcribe/update`, {
+    await apiFetch('/transcribe/update', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ meetingId, transcript: mergedTranscript }),
@@ -386,7 +399,7 @@ async function runChunkedPipeline(audioChunks) {
 
     // Step 5: Summarize the merged transcript via Azure OpenAI
     await setState('processing', { step: 'summarizing', meetingId });
-    const summarizeRes = await fetch(`${API_BASE}/summarize`, {
+    const summarizeRes = await apiFetch('/summarize', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ meetingId }),
@@ -633,7 +646,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       // Send 15s audio chunk to server for live transcript preview
       (async () => {
         try {
-          const res = await fetch(`${API_BASE}/transcribe/live`, {
+          const res = await apiFetch('/transcribe/live', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -698,7 +711,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case 'SEND_TO_SLACK':
       (async () => {
         try {
-          const res = await fetch(`${API_BASE}/slack/send`, {
+          const res = await apiFetch('/slack/send', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

@@ -19,6 +19,8 @@
   },
   "host_permissions": [
     "http://localhost:3001/*",
+    "http://YOUR_SERVER_IP:3001/*",
+    "https://YOUR_SERVER_DOMAIN/*",
     "https://www.googleapis.com/*"
   ],
   "background": {
