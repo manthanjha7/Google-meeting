@@ -36,6 +36,12 @@ let chunkInterval = null;
 let completedChunks = []; // Array of base64 audio strings
 let recordingStream = null; // Persist across chunk boundaries
 
+// ---- Live transcript: second recorder for 15-second preview chunks ----
+const LIVE_CHUNK_MS = 15000; // 15 seconds per live preview chunk
+let liveRecorder = null;
+let liveChunkInterval = null;
+let isLiveRecording = false;
+
 // ---- Message-based command listener ----
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -224,6 +230,9 @@ async function startRecording(streamId, includeMic = false) {
 
     console.log(`[Finrep] Recording started with auto-chunking every ${CHUNK_DURATION_MS / 60000} minutes`);
     chrome.runtime.sendMessage({ type: 'RECORDING_STARTED' });
+
+    // Start live transcript preview recorder (separate from main recorder)
+    startLiveChunkRecorder();
   } catch (err) {
     console.error('[Finrep] Recording error:', err);
     cleanupStreams();
@@ -521,6 +530,7 @@ function stopRecording() {
   if (mediaRecorder && mediaRecorder.state === 'recording') {
     mediaRecorder.onstop = async () => {
       stopAudioAnalyser();
+      stopLiveChunkRecorder();
 
       // Finalize the last chunk
       const blob = new Blob(recordedChunks, { type: 'audio/webm' });
@@ -579,6 +589,7 @@ function cancelRecording() {
   }
 
   stopAudioAnalyser();
+  stopLiveChunkRecorder();
 
   if (mediaRecorder) {
     mediaRecorder.ondataavailable = null;
@@ -592,6 +603,76 @@ function cancelRecording() {
   recordedChunks = [];
   completedChunks = [];
   cleanupStreams();
+}
+
+// ---- Live Transcript Preview ----
+
+/**
+ * Start the live chunk recorder. Every LIVE_CHUNK_MS, stops the current
+ * recorder (producing a complete self-contained WebM file), sends it to
+ * background for transcription, then starts a new recorder.
+ *
+ * Uses a separate MediaRecorder on the same stream — main recorder is unaffected.
+ */
+function startLiveChunkRecorder() {
+  if (!recordingStream || isLiveRecording) return;
+  isLiveRecording = true;
+
+  function recordOneChunk() {
+    if (!recordingStream || !isLiveRecording) return;
+
+    const chunks = [];
+    liveRecorder = new MediaRecorder(recordingStream, {
+      mimeType: 'audio/webm;codecs=opus',
+      audioBitsPerSecond: 32000, // Lower bitrate for quick preview
+    });
+
+    liveRecorder.ondataavailable = (e) => {
+      if (e.data.size > 0) chunks.push(e.data);
+    };
+
+    liveRecorder.onstop = async () => {
+      if (!isLiveRecording) return;
+      const blob = new Blob(chunks, { type: 'audio/webm' });
+      if (blob.size > 1000) {
+        const audioBase64 = await blobToBase64(blob);
+        chrome.runtime.sendMessage({
+          type: 'LIVE_CHUNK_READY',
+          audioBase64,
+          filename: 'live_chunk.webm',
+        });
+      }
+      // Schedule next chunk immediately
+      if (isLiveRecording) {
+        liveChunkInterval = setTimeout(recordOneChunk, 100);
+      }
+    };
+
+    liveRecorder.start();
+    // Stop after LIVE_CHUNK_MS to produce a complete WebM file
+    setTimeout(() => {
+      if (liveRecorder && liveRecorder.state === 'recording') {
+        liveRecorder.stop();
+      }
+    }, LIVE_CHUNK_MS);
+  }
+
+  recordOneChunk();
+  console.log('[Finrep] Live transcript preview started (15s chunks)');
+}
+
+function stopLiveChunkRecorder() {
+  isLiveRecording = false;
+  if (liveChunkInterval) {
+    clearTimeout(liveChunkInterval);
+    liveChunkInterval = null;
+  }
+  if (liveRecorder && liveRecorder.state !== 'inactive') {
+    liveRecorder.onstop = null; // Prevent scheduling next chunk
+    liveRecorder.stop();
+  }
+  liveRecorder = null;
+  console.log('[Finrep] Live transcript preview stopped');
 }
 
 /**

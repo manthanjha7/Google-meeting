@@ -180,9 +180,9 @@ async function syncState() {
       case 'recording':
         showState('recording');
         if (data.startTime) startTimer(data.startTime);
-        // Load current audio levels (bars stay flat until someone speaks)
-        chrome.storage.local.get('audioLevels', (result) => {
+        chrome.storage.local.get(['audioLevels', 'liveTranscript'], (result) => {
           updateVisualizer(result.audioLevels || null);
+          updateLiveTranscript(result.liveTranscript || []);
         });
         break;
 
@@ -364,6 +364,27 @@ elements.btnReset.addEventListener('click', () => {
 const micLevelBar = document.getElementById('mic-level-bar');
 const tabLevelBar = document.getElementById('tab-level-bar');
 
+function updateLiveTranscript(utterances) {
+  const section = document.getElementById('live-transcript-section');
+  const textEl = document.getElementById('live-transcript-text');
+  if (!section || !textEl) return;
+
+  if (!utterances || utterances.length === 0) {
+    section.style.display = 'none';
+    return;
+  }
+
+  section.style.display = 'block';
+  // Show last 3 utterances, newest at bottom
+  const recent = utterances.slice(-3);
+  textEl.innerHTML = recent.map((t, i) => {
+    const opacity = 0.5 + (i / recent.length) * 0.5; // fade older utterances
+    return `<span style="opacity:${opacity}">${escapeHtml(t)}</span>`;
+  }).join('<br>');
+  // Scroll to bottom
+  textEl.scrollTop = textEl.scrollHeight;
+}
+
 function updateSourceLevels(micRms, tabRms) {
   // RMS values are scaled *1000 in offscreen, map to 0-100% width
   // Typical speech RMS*1000 is 5-50, so scale accordingly
@@ -387,6 +408,10 @@ chrome.storage.onChanged.addListener((changes) => {
     const micRms = changes.micRms ? changes.micRms.newValue : 0;
     const tabRms = changes.tabRms ? changes.tabRms.newValue : 0;
     updateSourceLevels(micRms, tabRms);
+  }
+  // Update live transcript preview
+  if (changes.liveTranscript) {
+    updateLiveTranscript(changes.liveTranscript.newValue);
   }
 });
 

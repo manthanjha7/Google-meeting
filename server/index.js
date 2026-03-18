@@ -27,6 +27,7 @@ app.get('/dashboard', (req, res) => {
 
 // Routes
 app.use('/api/upload', require('./routes/upload'));
+app.use('/api/transcribe/live', require('./routes/live'));
 app.use('/api/transcribe', require('./routes/transcribe'));
 app.use('/api/summarize', require('./routes/summarize'));
 app.use('/api/slack', require('./routes/slack'));

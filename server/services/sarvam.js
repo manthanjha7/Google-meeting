@@ -4,6 +4,7 @@ const { BlobServiceClient } = require('@azure/storage-blob');
 const { stripSilenceFromWav } = require('./vad');
 
 const SARVAM_BASE = 'https://api.sarvam.ai';
+const SARVAM_SYNC_STT = `${SARVAM_BASE}/speech-to-text`;
 const SARVAM_JOB_INIT = `${SARVAM_BASE}/speech-to-text/job/init`;
 const SARVAM_JOB_START = `${SARVAM_BASE}/speech-to-text/job`;
 const SARVAM_JOB_STATUS = (jobId) => `${SARVAM_BASE}/speech-to-text/job/${jobId}/status`;
@@ -348,4 +349,61 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-module.exports = { transcribe };
+/**
+ * Transcribe a short audio clip using Sarvam's synchronous STT API.
+ * Designed for live preview chunks (5-30 seconds).
+ * No diarization — returns plain transcript text with detected language.
+ * Uses codemix mode for Hindi-English switching support.
+ *
+ * @param {Buffer} audioBuffer - Raw audio bytes (WebM/Opus, WAV, etc.)
+ * @param {string} filename - Original filename (used for MIME type detection)
+ * @returns {{ transcript: string, languageCode: string }}
+ */
+async function transcribeLive(audioBuffer, filename = 'chunk.webm') {
+  const apiKey = process.env.SARVAM_API_KEY;
+  if (!apiKey) throw new Error('SARVAM_API_KEY not configured');
+
+  if (!audioBuffer || audioBuffer.length < 1000) {
+    return { transcript: '', languageCode: 'unknown' };
+  }
+
+  const ext = path.extname(filename).toLowerCase();
+  const mimeTypes = {
+    '.webm': 'audio/webm',
+    '.wav': 'audio/wav',
+    '.mp3': 'audio/mpeg',
+    '.ogg': 'audio/ogg',
+    '.m4a': 'audio/mp4',
+    '.flac': 'audio/flac',
+  };
+  const mimeType = mimeTypes[ext] || 'audio/webm';
+
+  const { FormData, Blob } = require('node-fetch') || {};
+  // Use native fetch (Node 18+) with FormData
+  const formData = new (require('node:buffer') ? FormData : global.FormData)();
+  // Build multipart form using native FormData (Node 18+)
+  const form = new FormData();
+  form.append('file', new Blob([audioBuffer], { type: mimeType }), filename);
+  form.append('model', 'saaras:v3');
+  form.append('language_code', 'unknown');  // auto-detect Hindi/English/Hinglish
+  form.append('mode', 'codemix');           // best for Hinglish code-switching
+
+  const res = await fetch(SARVAM_SYNC_STT, {
+    method: 'POST',
+    headers: { 'api-subscription-key': apiKey },
+    body: form,
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Sarvam sync STT failed (${res.status}): ${errText}`);
+  }
+
+  const data = await res.json();
+  return {
+    transcript: data.transcript || '',
+    languageCode: data.language_code || 'unknown',
+  };
+}
+
+module.exports = { transcribe, transcribeLive };

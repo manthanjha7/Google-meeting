@@ -431,9 +431,35 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       });
       break;
 
+    case 'LIVE_CHUNK_READY':
+      // Send 15s audio chunk to server for live transcript preview
+      (async () => {
+        try {
+          const res = await fetch(`${API_BASE}/transcribe/live`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              audioBase64: message.audioBase64,
+              filename: message.filename || 'live_chunk.webm',
+            }),
+          });
+          const data = await res.json();
+          if (data.transcript && data.transcript.trim()) {
+            // Append to rolling live transcript (keep last 8 utterances)
+            const stored = await chrome.storage.local.get('liveTranscript');
+            const prev = stored.liveTranscript || [];
+            const updated = [...prev, data.transcript.trim()].slice(-8);
+            await chrome.storage.local.set({ liveTranscript: updated });
+          }
+        } catch (err) {
+          console.warn('[Finrep] Live transcript chunk failed:', err.message);
+        }
+      })();
+      break;
+
     case 'RECORDING_COMPLETE':
-      // Clear audio levels
-      chrome.storage.local.remove('audioLevels');
+      // Clear audio levels and live transcript
+      chrome.storage.local.remove(['audioLevels', 'liveTranscript']);
       if (message.audioChunks && message.audioChunks.length > 0) {
         // Multi-chunk recording (>55 min) — upload and transcribe each chunk
         runChunkedPipeline(message.audioChunks);
