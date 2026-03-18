@@ -314,7 +314,9 @@ function startNewRecorderChunk() {
     if (event.data.size > 0) {
       recordedChunks.push(event.data);
       // Persist each chunk to IDB for crash recovery
-      blobToBase64(event.data).then((b64) => appendChunkToIdb(b64));
+      blobToBase64(event.data).then((b64) => appendChunkToIdb(b64)).catch((e) => {
+        console.warn('[Finrep] IDB persist failed:', e.message);
+      });
     }
   };
 
@@ -640,7 +642,7 @@ function stopRecording() {
   }
 }
 
-function cancelRecording() {
+async function cancelRecording() {
   console.log('[Finrep] cancelRecording called');
 
   if (chunkInterval) {
@@ -663,7 +665,7 @@ function cancelRecording() {
   recordedChunks = [];
   completedChunks = [];
   // Clear IDB — recording was cancelled
-  clearIdb();
+  await clearIdb();
   cleanupStreams();
 }
 

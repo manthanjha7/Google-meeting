@@ -269,13 +269,17 @@ async function summarizeChunked(chunks, extraInstructions = '', settings = {}) {
       .replace('CHUNK_NUM', String(i + 1))
       .replace('TOTAL_CHUNKS', String(chunks.length));
 
-    const response = await client.chat.completions.create({
-      model,
-      max_tokens: 2048,
-      messages: [{ role: 'user', content: prompt + chunks[i] }],
-    });
-
-    chunkSummaries.push(response.choices[0].message.content);
+    try {
+      const response = await client.chat.completions.create({
+        model,
+        max_tokens: 2048,
+        messages: [{ role: 'user', content: prompt + chunks[i] }],
+      });
+      chunkSummaries.push(response.choices[0].message.content);
+    } catch (chunkErr) {
+      console.warn(`[Summarizer] Chunk ${i + 1}/${chunks.length} failed, using empty placeholder:`, chunkErr.message);
+      chunkSummaries.push(JSON.stringify({ keyPoints: [], decisions: [], actionItems: [], participants: [], deadlines: [], context: `[Chunk ${i + 1} could not be processed]` }));
+    }
   }
 
   console.log(`[Summarizer] Merging ${chunkSummaries.length} chunk summaries`);
@@ -296,10 +300,17 @@ async function summarizeChunked(chunks, extraInstructions = '', settings = {}) {
 function parseSummaryResponse(responseText) {
   const jsonMatch = responseText.match(/\{[\s\S]*\}/);
   if (!jsonMatch) {
+    console.error('[Summarizer] No JSON found in LLM response:', responseText.substring(0, 300));
     throw new Error('Failed to parse summary JSON from LLM response');
   }
 
-  const summary = JSON.parse(jsonMatch[0]);
+  let summary;
+  try {
+    summary = JSON.parse(jsonMatch[0]);
+  } catch (parseErr) {
+    console.error('[Summarizer] JSON parse error:', parseErr.message, '— Raw:', jsonMatch[0].substring(0, 300));
+    throw parseErr;
+  }
 
   const arrayFields = ['decisions', 'actionItems', 'followUps', 'deadlines', 'nextSteps', 'participants'];
   const stringFields = ['title', 'summary'];

@@ -9,6 +9,13 @@ const { getSettings } = require('../db/queries');
 
 const router = express.Router();
 
+// Validate :id params are UUID format before hitting DB
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+router.param('id', (req, res, next, id) => {
+  if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid meeting ID format' });
+  next();
+});
+
 // GET /api/meetings
 router.get('/', async (req, res) => {
   const { callType } = req.query;

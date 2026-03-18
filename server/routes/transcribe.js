@@ -44,6 +44,8 @@ router.post('/', async (req, res) => {
   }
 });
 
+const MAX_TRANSCRIPT_BYTES = 10 * 1024 * 1024; // 10MB
+
 // POST /api/transcribe/update — merge/overwrite transcript for a meeting
 // Used by chunked pipeline to combine transcripts from multiple audio chunks
 router.post('/update', async (req, res) => {
@@ -51,6 +53,10 @@ router.post('/update', async (req, res) => {
 
   if (!meetingId || !transcript) {
     return res.status(400).json({ error: 'meetingId and transcript are required' });
+  }
+
+  if (Buffer.byteLength(transcript, 'utf8') > MAX_TRANSCRIPT_BYTES) {
+    return res.status(413).json({ error: 'Transcript exceeds maximum allowed size (10MB)' });
   }
 
   const meeting = await getMeeting(meetingId);

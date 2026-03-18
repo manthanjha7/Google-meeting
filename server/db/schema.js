@@ -63,10 +63,13 @@ function runMigrations() {
 }
 
 function saveDb() {
-  if (db) {
+  if (!db) return;
+  try {
     const data = db.export();
     const buffer = Buffer.from(data);
     fs.writeFileSync(DB_PATH, buffer);
+  } catch (err) {
+    console.error('[DB] Failed to save database to disk:', err);
   }
 }
 

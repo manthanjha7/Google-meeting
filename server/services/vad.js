@@ -22,6 +22,10 @@ let session = null;
 
 async function getSession() {
   if (!session) {
+    const fs = require('fs');
+    if (!fs.existsSync(MODEL_PATH)) {
+      throw new Error(`VAD model not found at ${MODEL_PATH}. Download silero_vad.onnx from the Silero repo and place it in server/models/.`);
+    }
     const ort = require('onnxruntime-node');
     session = await ort.InferenceSession.create(MODEL_PATH);
   }

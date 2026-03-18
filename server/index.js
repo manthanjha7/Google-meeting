@@ -14,7 +14,12 @@ if (!fs.existsSync(uploadDir)) {
 const app = express();
 
 // Middleware
-app.use(cors());
+// CORS_ORIGINS env var: comma-separated list of allowed origins.
+// If not set, all origins are allowed (suitable for local dev).
+const allowedOrigins = process.env.CORS_ORIGINS
+  ? process.env.CORS_ORIGINS.split(',').map((o) => o.trim())
+  : null;
+app.use(cors(allowedOrigins ? { origin: allowedOrigins } : {}));
 app.use(express.json({ limit: '50mb' }));
 
 // Serve dashboard static files

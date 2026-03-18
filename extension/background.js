@@ -1,6 +1,10 @@
 // Background service worker — orchestrates recording, pipeline, and state management
 
-const API_BASE = 'http://localhost:3001/api';
+let API_BASE = 'http://localhost:3001/api';
+// Allow runtime override via chrome.storage (e.g. for staging/prod deployments)
+chrome.storage.local.get('apiBase', (result) => {
+  if (result.apiBase) API_BASE = result.apiBase;
+});
 
 // ---- IndexedDB Recovery (same DB as offscreen.js) ----
 
@@ -76,6 +80,10 @@ let meetUrl = null;
 // Pending start command — stored here until offscreen sends OFFSCREEN_READY
 let pendingStartCommand = null;
 
+// Guard against double-start race: two START_RECORDING_REQUEST messages arriving
+// before chrome.storage.local state is persisted and re-read.
+let isStartingRecording = false;
+
 // ---- State Management ----
 
 async function setState(state, data = {}) {
@@ -132,12 +140,29 @@ async function closeOffscreenDocument() {
   }
 }
 
+// ---- Fetch with Timeout ----
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = 60000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    clearTimeout(timer);
+    return res;
+  } catch (err) {
+    clearTimeout(timer);
+    if (err.name === 'AbortError') throw new Error(`Request timed out after ${timeoutMs / 1000}s: ${url}`);
+    throw err;
+  }
+}
+
 // ---- Recording Control ----
 
 async function startRecording(tabId, includeMic = false) {
   try {
     recordingTabId = tabId;
     recordingStartTime = Date.now();
+    isStartingRecording = false; // reset guard once we're actually in startRecording
 
     // Get media stream ID for the tab
     const streamId = await chrome.tabCapture.getMediaStreamId({
@@ -207,10 +232,10 @@ async function runPipeline(audioBase64) {
     if (meetTitle) formData.append('meetTitle', meetTitle);
     if (meetUrl) formData.append('meetUrl', meetUrl);
 
-    const uploadRes = await fetch(`${API_BASE}/upload`, {
+    const uploadRes = await fetchWithTimeout(`${API_BASE}/upload`, {
       method: 'POST',
       body: formData,
-    });
+    }, 120000); // 2 min for upload
     const uploadData = await uploadRes.json();
 
     if (!uploadRes.ok) throw new Error(uploadData.error || 'Upload failed');
@@ -220,38 +245,41 @@ async function runPipeline(audioBase64) {
 
     // Optional: Enrich with Google Calendar data (best-effort, non-blocking)
     if (meetUrl) {
-      fetchCalendarEventForMeet(meetUrl).then(async (calEvent) => {
-        if (calEvent) {
-          try {
+      (async () => {
+        try {
+          const calEvent = await fetchCalendarEventForMeet(meetUrl);
+          if (calEvent) {
             await fetch(`${API_BASE}/calendar/enrich`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ meetingId, ...calEvent }),
             });
             console.log('[Finrep] Calendar enrichment applied:', calEvent.title);
-          } catch (e) { /* ignore */ }
+          }
+        } catch (e) {
+          console.warn('[Finrep] Calendar enrichment failed (non-blocking):', e.message);
         }
-      }).catch(() => {});
+      })();
     }
 
     // Step 2: Transcribe
     await setState('processing', { step: 'transcribing', meetingId });
-    const transcribeRes = await fetch(`${API_BASE}/transcribe`, {
+    const transcribeRes = await fetchWithTimeout(`${API_BASE}/transcribe`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ meetingId }),
-    });
+    }, 600000); // 10 min for Sarvam batch STT
     const transcribeData = await transcribeRes.json();
 
     if (!transcribeRes.ok) throw new Error(transcribeData.error || 'Transcription failed');
 
     // Step 3: Summarize via Azure OpenAI
     await setState('processing', { step: 'summarizing', meetingId });
-    const summarizeRes = await fetch(`${API_BASE}/summarize`, {
+    const summarizeRes = await fetchWithTimeout(`${API_BASE}/summarize`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ meetingId }),
-    });
+    }, 120000); // 2 min for summarization
     const summarizeData = await summarizeRes.json();
     if (!summarizeRes.ok) throw new Error(summarizeData.error || 'Summarization failed');
 
@@ -565,9 +593,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       break;
 
     case 'START_RECORDING_REQUEST':
+      if (isStartingRecording) break; // guard against race
+      isStartingRecording = true;
       getState().then(({ state }) => {
         if ((state === 'idle' || state === 'meet-detected') && message.tabId) {
           startRecording(message.tabId, message.includeMic || false);
+        } else {
+          isStartingRecording = false;
         }
       });
       break;

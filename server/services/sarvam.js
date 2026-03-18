@@ -412,10 +412,7 @@ async function transcribeLive(audioBuffer, filename = 'chunk.webm') {
   };
   const mimeType = mimeTypes[ext] || 'audio/webm';
 
-  const { FormData, Blob } = require('node-fetch') || {};
-  // Use native fetch (Node 18+) with FormData
-  const formData = new (require('node:buffer') ? FormData : global.FormData)();
-  // Build multipart form using native FormData (Node 18+)
+  // Use native FormData and Blob (Node 18+)
   const form = new FormData();
   form.append('file', new Blob([audioBuffer], { type: mimeType }), filename);
   form.append('model', 'saaras:v3');
