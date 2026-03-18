@@ -33,6 +33,7 @@ app.use('/api/summarize', require('./routes/summarize'));
 app.use('/api/slack', require('./routes/slack'));
 app.use('/api/meetings', require('./routes/meetings'));
 app.use('/api/settings', require('./routes/settings'));
+app.use('/api/analytics', require('./routes/analytics'));
 
 // Health check
 app.get('/api/health', (req, res) => {
