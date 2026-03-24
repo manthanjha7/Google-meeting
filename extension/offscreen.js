@@ -680,7 +680,7 @@ async function cancelRecording() {
   }
 
   stopAudioAnalyser();
-  stopLiveChunkRecorder();
+  // stopLiveChunkRecorder was removed; no-op
 
   if (mediaRecorder) {
     mediaRecorder.ondataavailable = null;

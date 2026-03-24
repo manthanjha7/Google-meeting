@@ -10,7 +10,8 @@ function applyNames(transcript, speakerNames) {
   let result = transcript;
   for (const [label, name] of Object.entries(speakerNames)) {
     if (name && name.trim()) {
-      result = result.replace(new RegExp(label, 'g'), name.trim());
+      const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      result = result.replace(new RegExp(escaped, 'g'), name.trim());
     }
   }
   return result;
@@ -98,7 +99,7 @@ router.get('/stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  // CORS is handled by the global middleware in index.js
   res.flushHeaders();
 
   try {

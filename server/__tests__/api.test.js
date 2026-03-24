@@ -21,6 +21,7 @@ jest.mock('../db/schema', () => {
       summary TEXT, participants TEXT, speaker_names TEXT,
       slack_posted INTEGER DEFAULT 0, slack_thread_ts TEXT,
       calendar_event_id TEXT, calendar_attendees TEXT, calendar_description TEXT,
+      user_id TEXT, user_name TEXT, visibility TEXT DEFAULT 'team',
       created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now'))
     )`);
     _db.run(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`);

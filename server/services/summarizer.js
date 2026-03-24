@@ -1,5 +1,5 @@
 const { AzureOpenAI, OpenAI } = require('openai');
-const Anthropic = require('@anthropic-ai/sdk');
+
 
 function buildClient(settings = {}) {
   const provider = settings.llmProvider || settings.llm_provider || process.env.LLM_PROVIDER || 'azure';
