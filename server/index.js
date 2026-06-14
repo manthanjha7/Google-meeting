@@ -66,7 +66,7 @@ if (API_SECRET) {
 
 app.use(express.json({ limit: '50mb' }));
 
-// Serve legacy static files
+// Serve static files
 app.use(express.static(path.join(__dirname, 'public')));
 
 // React dashboard (served from /dashboard/)
@@ -77,8 +77,7 @@ app.get('/dashboard/*', (req, res) => {
   if (fs.existsSync(indexPath)) {
     res.sendFile(indexPath);
   } else {
-    // Fallback to old dashboard
-    res.sendFile(path.join(__dirname, 'public', 'dashboard.html'));
+    res.status(404).send('Dashboard not built. Run the dashboard-app build step.');
   }
 });
 

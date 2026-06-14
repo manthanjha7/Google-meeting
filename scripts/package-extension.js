@@ -2,7 +2,7 @@
  * Packages the Chrome extension into extension.zip for team distribution.
  * Run: npm run package-extension
  *
- * Includes: all extension files except popup-src source and node_modules.
+ * Includes: all runtime extension files.
  */
 
 const archiver = require('archiver');
@@ -27,13 +27,7 @@ output.on('close', () => {
 archive.on('error', (err) => { throw err; });
 archive.pipe(output);
 
-// Include everything in extension/ except popup-src (source only, not needed at runtime)
-archive.glob('**/*', {
-  cwd: EXT_DIR,
-  ignore: [
-    'popup-src/**',
-    'popup-src/node_modules/**',
-  ],
-});
+// Include everything in extension/ (runtime files only).
+archive.glob('**/*', { cwd: EXT_DIR });
 
 archive.finalize();

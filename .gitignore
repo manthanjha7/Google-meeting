@@ -1,7 +1,5 @@
 node_modules/
 dist/
-extension/popup-build/
-extension/popup-src/node_modules/
 .claude/
 extension.zip
 data/
