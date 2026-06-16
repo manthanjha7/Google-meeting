@@ -11,36 +11,49 @@ const SARVAM_JOB_START = `${SARVAM_BASE}/speech-to-text/job`;
 const SARVAM_JOB_STATUS = (jobId) => `${SARVAM_BASE}/speech-to-text/job/${jobId}/status`;
 
 const POLL_INTERVAL_MS = 10_000; // 10 seconds
-const MAX_POLL_TIME_MS = 10 * 60_000; // 10 minutes
+const MAX_POLL_TIME_MS = 30 * 60_000; // 30 minutes — Sarvam batch queue can take 15-20 min
 
 /**
  * Convert any audio format to 16kHz mono WAV using ffmpeg.
  * Returns null if ffmpeg is not installed.
+ *
+ * Writes to a temp file rather than stdout: ffmpeg cannot seek on a pipe, so a
+ * piped WAV gets placeholder RIFF/data chunk sizes (effectively ~4GB). Sarvam
+ * then reads a bogus multi-hour duration and rejects the file with
+ * "Audio duration exceeds the maximum limit of 7200 seconds". A seekable file
+ * output lets ffmpeg backfill the correct chunk sizes.
  */
 function convertToWav(audioBuffer) {
   return new Promise((resolve, reject) => {
+    const os = require('os');
+    const crypto = require('crypto');
+    const outPath = path.join(os.tmpdir(), `finrep_wav_${crypto.randomUUID()}.wav`);
+
     const ffmpeg = spawn('ffmpeg', [
       '-i', 'pipe:0',   // read from stdin
-      '-f', 'wav',      // output WAV
       '-ar', '16000',   // 16kHz — matches Silero VAD requirement
       '-ac', '1',       // mono
+      '-f', 'wav',      // output WAV
       '-y',             // overwrite
-      'pipe:1',         // write to stdout
+      outPath,          // write to seekable file (correct header sizes)
     ]);
 
-    const chunks = [];
-    ffmpeg.stdout.on('data', (chunk) => chunks.push(chunk));
     ffmpeg.stderr.on('data', () => {}); // suppress ffmpeg progress output
 
     ffmpeg.on('close', (code) => {
-      if (code === 0 && chunks.length > 0) {
-        resolve(Buffer.concat(chunks));
-      } else {
-        reject(new Error(`ffmpeg exited with code ${code}`));
+      try {
+        if (code === 0 && fs.existsSync(outPath)) {
+          resolve(fs.readFileSync(outPath));
+        } else {
+          reject(new Error(`ffmpeg exited with code ${code}`));
+        }
+      } finally {
+        try { fs.unlinkSync(outPath); } catch { /* best-effort cleanup */ }
       }
     });
 
     ffmpeg.on('error', (err) => {
+      try { fs.unlinkSync(outPath); } catch { /* best-effort cleanup */ }
       // ffmpeg not installed — resolve null so caller can skip VAD gracefully
       if (err.code === 'ENOENT') resolve(null);
       else reject(err);
@@ -129,9 +142,12 @@ async function transcribe(audioFilePath, { numSpeakers } = {}) {
   await uploadToAzureBlob(inputPath, audioBuffer, uploadFileName);
 
   // Step 3: Start the job with diarization enabled
+  // mode controls output script: 'translit' = romanized Hinglish (Latin script),
+  // 'transcribe' = native Devanagari. Default to translit for readable Hindi-English.
   const jobParameters = {
     language_code: 'unknown',
     model: 'saaras:v3',
+    mode: process.env.SARVAM_STT_MODE || 'translit',
     with_timestamps: true,
     with_diarization: true,
   };
@@ -470,7 +486,7 @@ async function transcribeLive(audioBuffer, filename = 'chunk.webm') {
   form.append('file', new Blob([audioBuffer], { type: mimeType }), filename);
   form.append('model', 'saaras:v3');
   form.append('language_code', 'unknown');  // auto-detect Hindi/English/Hinglish
-  form.append('mode', 'codemix');           // best for Hinglish code-switching
+  form.append('mode', process.env.SARVAM_STT_MODE || 'translit');  // romanized Hinglish (Latin script)
 
   const res = await fetch(SARVAM_SYNC_STT, {
     method: 'POST',
@@ -490,4 +506,90 @@ async function transcribeLive(audioBuffer, filename = 'chunk.webm') {
   };
 }
 
-module.exports = { transcribe, transcribeLive };
+/**
+ * Split an audio file into fixed-length 16kHz mono WAV chunks via ffmpeg.
+ * Each chunk is a self-contained, valid WAV (ffmpeg writes correct headers to files).
+ * Returns the directory containing chunk_0000.wav, chunk_0001.wav, ...
+ */
+function splitToWavChunks(inputPath, outDir, chunkSeconds) {
+  return new Promise((resolve, reject) => {
+    const ffmpeg = spawn('ffmpeg', [
+      '-i', inputPath,
+      '-ar', '16000',
+      '-ac', '1',
+      '-f', 'segment',
+      '-segment_time', String(chunkSeconds),
+      '-c:a', 'pcm_s16le',
+      '-y', path.join(outDir, 'chunk_%04d.wav'),
+    ]);
+    ffmpeg.stderr.on('data', () => {});
+    ffmpeg.on('close', (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`ffmpeg segment split exited with code ${code}`));
+    });
+    ffmpeg.on('error', (err) => {
+      if (err.code === 'ENOENT') reject(new Error('ffmpeg is required for chunked transcription but is not installed'));
+      else reject(err);
+    });
+  });
+}
+
+/**
+ * Transcribe by splitting audio into short chunks and running each through the fast
+ * synchronous STT endpoint. Near-instant per chunk and reports progress, but does NOT
+ * diarize (no speaker separation) — all lines are attributed to a single speaker.
+ *
+ * @param {string} audioFilePath
+ * @param {{ onProgress?: (done:number,total:number)=>void, chunkSeconds?: number }} opts
+ * @returns {{ transcript: string, segments: Array }}
+ */
+// 25s (not 30) because Sarvam's sync STT rejects audio >30s, and ffmpeg's segment
+// muxer can overshoot the target by ~50-100ms; 25s keeps every chunk safely under the cap.
+async function transcribeChunkedSync(audioFilePath, { onProgress, chunkSeconds = 25 } = {}) {
+  const apiKey = process.env.SARVAM_API_KEY;
+  if (!apiKey) throw new Error('SARVAM_API_KEY not configured');
+  if (!fs.existsSync(audioFilePath)) throw new Error(`Audio file not found: ${audioFilePath}`);
+
+  const os = require('os');
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'finrep_chunks_'));
+
+  try {
+    await splitToWavChunks(audioFilePath, tmpDir, chunkSeconds);
+    const files = fs.readdirSync(tmpDir).filter((f) => f.endsWith('.wav')).sort();
+    if (files.length === 0) throw new Error('Audio could not be split into chunks');
+
+    const lines = [];
+    const segments = [];
+
+    for (let i = 0; i < files.length; i++) {
+      const buf = fs.readFileSync(path.join(tmpDir, files[i]));
+      let text = '';
+      try {
+        const r = await transcribeLive(buf, files[i]);
+        text = (r.transcript || '').trim();
+      } catch (err) {
+        console.warn(`[Sarvam] chunk ${i + 1}/${files.length} failed:`, err.message);
+      }
+
+      const startSec = i * chunkSeconds;
+      if (text) {
+        // Speaker "0" — chunked sync cannot diarize, so a single speaker label is used.
+        lines.push(`[${formatTime(startSec)}] 0: ${text}`);
+        segments.push({
+          speaker: '0',
+          text,
+          startTime: startSec,
+          endTime: startSec + chunkSeconds,
+          confidence: heuristicConfidence(text),
+        });
+      }
+      if (onProgress) onProgress(i + 1, files.length);
+    }
+
+    return { transcript: lines.join('\n'), segments };
+  } finally {
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* best-effort */ }
+  }
+}
+
+module.exports = { transcribe, transcribeLive, transcribeChunkedSync };

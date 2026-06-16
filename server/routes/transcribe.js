@@ -1,8 +1,53 @@
 const express = require('express');
 const { getMeeting, updateTranscript, saveSegments } = require('../db/queries');
-const { transcribe } = require('../services/sarvam');
+const { transcribe, transcribeChunkedSync } = require('../services/sarvam');
+const { runSpeakerAutoMapping } = require('../services/speakerMapping');
 
 const router = express.Router();
+
+// GET /api/transcribe/retranscribe/stream?meetingId=...
+// Server-Sent Events: streams chunked-sync transcription progress, then the final transcript.
+// Fast (per-chunk sync STT) with real progress, but no speaker diarization.
+router.get('/retranscribe/stream', async (req, res) => {
+  const { meetingId } = req.query;
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  if (typeof res.flushHeaders === 'function') res.flushHeaders();
+
+  const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+
+  if (!meetingId) { send('failed', { error: 'meetingId is required' }); return res.end(); }
+
+  const meeting = await getMeeting(meetingId);
+  if (!meeting) { send('failed', { error: 'Meeting not found' }); return res.end(); }
+  if (!meeting.audio_path) { send('failed', { error: 'No audio file for this meeting' }); return res.end(); }
+
+  const fs = require('fs');
+  if (!fs.existsSync(meeting.audio_path)) { send('failed', { error: 'Audio file no longer exists on disk' }); return res.end(); }
+
+  try {
+    const result = await transcribeChunkedSync(meeting.audio_path, {
+      onProgress: (done, total) => send('progress', { done, total }),
+    });
+
+    if (!result.transcript || result.transcript.trim().length === 0) {
+      send('failed', { error: 'Transcription returned empty. The audio may be silent.' });
+      return res.end();
+    }
+
+    await updateTranscript(meetingId, result.transcript);
+    if (result.segments.length > 0) await saveSegments(meetingId, result.segments);
+
+    send('done', { transcript: result.transcript, segmentCount: result.segments.length });
+    res.end();
+  } catch (err) {
+    console.error('Streaming re-transcription error:', err);
+    send('failed', { error: `Re-transcription failed: ${err.message}` });
+    res.end();
+  }
+});
 
 // POST /api/transcribe
 router.post('/', async (req, res) => {
@@ -35,6 +80,8 @@ router.post('/', async (req, res) => {
     await updateTranscript(meetingId, transcript);
     if (segments.length > 0) {
       await saveSegments(meetingId, segments);
+      // Best-effort: auto-name speakers from Meet captions (no-op if none / single speaker).
+      await runSpeakerAutoMapping(meetingId);
     }
 
     res.json({ meetingId, transcript, segmentCount: segments.length });
@@ -109,6 +156,7 @@ router.post('/retranscribe', async (req, res) => {
     await updateTranscript(meetingId, transcript);
     if (segments.length > 0) {
       await saveSegments(meetingId, segments);
+      await runSpeakerAutoMapping(meetingId);
     }
 
     res.json({ meetingId, transcript, retranscribed: true, segmentCount: segments.length });

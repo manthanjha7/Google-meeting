@@ -5,7 +5,7 @@ import { cn, fmtTimestamp } from '../../lib/utils'
 interface AudioPlayerProps {
   src: string
   durationSeconds?: number
-  audioRef: React.RefObject<HTMLAudioElement>
+  audioRef: React.RefObject<HTMLAudioElement | null>
   seekTo?: { secs: number; ts: number }
 }
 

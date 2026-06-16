@@ -8,7 +8,7 @@ interface Props {
   meeting: Meeting
   onSeek: (secs: number) => void
   onOpenSpeakers: () => void
-  audioRef?: React.RefObject<HTMLAudioElement>
+  audioRef?: React.RefObject<HTMLAudioElement | null>
 }
 
 const LINES_PER_PAGE = 80
@@ -128,7 +128,12 @@ export function TranscriptTab({ meeting, onSeek, onOpenSpeakers, audioRef }: Pro
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
-        <span className="text-xs text-muted-foreground">{lines.length} lines</span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">{lines.length} lines</span>
+          {meeting.speakerNamesMeta?.source === 'captions' && (
+            <span className="text-[10px] text-muted-foreground/80 italic">· names auto-detected from Meet captions</span>
+          )}
+        </div>
         <Button variant="outline" size="sm" onClick={onOpenSpeakers}>
           <Users className="h-3.5 w-3.5" />
           Name Speakers

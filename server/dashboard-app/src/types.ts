@@ -9,6 +9,7 @@ export interface Meeting {
   summary?: Summary
   audio_path?: string
   speakerNames?: Record<string, string>
+  speakerNamesMeta?: { source?: string; confidence?: Record<string, number> }
   segments?: Segment[]
   meet_link?: string
   slack_posted?: boolean

@@ -232,13 +232,29 @@ async function summarizeStream(transcript, extraInstructions = '', onChunk, sett
   }
 }
 
-async function detectSpeakerNames(transcript, settings = {}) {
+async function detectSpeakerNames(transcript, settings = {}, { candidateNames = [], alreadyMapped = {} } = {}) {
   try {
     const clientObj = buildClient(settings);
+
+    // Constrain guesses to the known attendee list, and tell the model which speakers are
+    // already identified so it only fills the gaps. Both are optional (back-compat preserved).
+    // Strip the base prompt's trailing "TRANSCRIPT:" so instructions go before the transcript.
+    let prompt = SPEAKER_DETECTION_PROMPT.replace(/\nTRANSCRIPT:\n$/, '');
+    if (Array.isArray(candidateNames) && candidateNames.length > 0) {
+      prompt += `\nThe meeting attendees are known to be: ${candidateNames.join(', ')}.\n`
+        + `Map speakers ONLY to names from this list. If a speaker cannot be confidently matched to one of these names, omit them.\n`;
+    }
+    const mappedKeys = Object.keys(alreadyMapped || {});
+    if (mappedKeys.length > 0) {
+      prompt += `\nThese speakers are already identified — do not change them, only resolve the rest: `
+        + `${JSON.stringify(alreadyMapped)}.\n`;
+    }
+    prompt += `\nTRANSCRIPT:\n`;
+
     const response = await clientObj.client.chat.completions.create({
       model: clientObj.model,
       max_completion_tokens: 256,
-      messages: [{ role: 'user', content: SPEAKER_DETECTION_PROMPT + transcript }],
+      messages: [{ role: 'user', content: prompt + transcript }],
     });
 
     const raw = response.choices[0].message.content.trim();

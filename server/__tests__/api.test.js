@@ -21,9 +21,10 @@ jest.mock('../db/schema', () => {
       summary TEXT, participants TEXT, speaker_names TEXT,
       slack_posted INTEGER DEFAULT 0, slack_thread_ts TEXT,
       calendar_event_id TEXT, calendar_attendees TEXT, calendar_description TEXT,
-      user_id TEXT, user_name TEXT, visibility TEXT DEFAULT 'team',
+      user_id TEXT, user_name TEXT, visibility TEXT DEFAULT 'team', speaker_names_meta TEXT,
       created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now'))
     )`);
+    _db.run(`CREATE TABLE IF NOT EXISTS caption_spans (id INTEGER PRIMARY KEY AUTOINCREMENT, meeting_id TEXT NOT NULL, speaker TEXT, text_snippet TEXT, t_start_ms REAL, t_end_ms REAL, part_number INTEGER DEFAULT 1)`);
     _db.run(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`);
     _db.run(`CREATE TABLE IF NOT EXISTS schema_migrations (id TEXT PRIMARY KEY, applied_at TEXT DEFAULT (datetime('now')))`);
     _db.run(`CREATE TABLE IF NOT EXISTS kb_documents (id TEXT PRIMARY KEY, filename TEXT NOT NULL, content_hash TEXT NOT NULL, created_at TEXT DEFAULT (datetime('now')))`);
@@ -102,6 +103,7 @@ function buildApp() {
   app.use('/api/analytics', require('../routes/analytics'));
   app.use('/api/kb', require('../routes/kb'));
   app.use('/api/calendar', require('../routes/calendar'));
+  app.use('/api/captions', require('../routes/captions'));
   app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
   return app;
 }
@@ -299,5 +301,46 @@ describe('Calendar API', () => {
   it('POST /api/calendar/enrich returns 404 for unknown meeting', async () => {
     const res = await request(app).post('/api/calendar/enrich').send({ meetingId: 'nonexistent', title: 'Test', attendees: [] });
     expect(res.status).toBe(404);
+  });
+});
+
+describe('Captions API + speaker auto-mapping', () => {
+  const sarvam = require('../services/sarvam');
+  let meetingId;
+
+  it('POST /api/upload creates a meeting to caption', async () => {
+    const res = await request(app)
+      .post('/api/upload')
+      .field('durationSeconds', '40')
+      .attach('audio', Buffer.alloc(2000), { filename: 'cap.webm', contentType: 'audio/webm' });
+    expect(res.status).toBe(200);
+    meetingId = res.body.meetingId;
+  });
+
+  it('POST /api/captions stores caption spans', async () => {
+    const spans = [
+      { speaker: 'Rahul', textSnippet: 'hi', tStartMs: 300, tEndMs: 9500 },
+      { speaker: 'Priya', textSnippet: 'hello', tStartMs: 10500, tEndMs: 19000 },
+    ];
+    const res = await request(app).post('/api/captions').send({ meetingId, spans });
+    expect(res.status).toBe(200);
+    expect(res.body.saved).toBe(2);
+  });
+
+  it('transcription auto-maps SPEAKER_x to caption names', async () => {
+    // Two diarized speakers whose times overlap the caption spans above.
+    sarvam.transcribe.mockResolvedValueOnce({
+      transcript: '[00:00] SPEAKER_0: hi\n[00:10] SPEAKER_1: hello',
+      segments: [
+        { speaker: 'SPEAKER_0', text: 'hi', startTime: 0, endTime: 10, confidence: 0.9 },
+        { speaker: 'SPEAKER_1', text: 'hello', startTime: 10, endTime: 19, confidence: 0.9 },
+      ],
+    });
+    const tr = await request(app).post('/api/transcribe').send({ meetingId });
+    expect(tr.status).toBe(200);
+
+    const res = await request(app).get(`/api/meetings/${meetingId}`);
+    expect(res.body.meeting.speakerNames).toEqual({ SPEAKER_0: 'Rahul', SPEAKER_1: 'Priya' });
+    expect(res.body.meeting.speakerNamesMeta?.source).toBe('captions');
   });
 });

@@ -78,6 +78,8 @@ let recordingStartTime = null;
 let meetTabId = null;
 let meetTitle = null;
 let meetUrl = null;
+// Speaker-attributed caption spans scraped from Meet (accumulated from the content script).
+let captionSpans = [];
 
 // Pending start command — stored here until offscreen sends OFFSCREEN_READY
 let pendingStartCommand = null;
@@ -175,6 +177,8 @@ async function startRecording(tabId, includeMic = false) {
   try {
     recordingTabId = tabId;
     recordingStartTime = Date.now();
+    captionSpans = [];
+    chrome.storage.local.remove('captionSpans');
     isStartingRecording = false; // reset guard once we're actually in startRecording
 
     // Get media stream ID for the tab
@@ -220,6 +224,10 @@ async function startRecording(tabId, includeMic = false) {
 }
 
 function stopRecording() {
+  // Ask the content script to flush any remaining caption spans before we process.
+  if (recordingTabId) {
+    chrome.tabs.sendMessage(recordingTabId, { type: 'CAPTION_CAPTURE_STOP' }).catch(() => {});
+  }
   chrome.runtime.sendMessage({
     type: 'STOP_RECORDING',
     target: 'offscreen',
@@ -227,6 +235,28 @@ function stopRecording() {
 }
 
 // ---- Pipeline ----
+
+// Best-effort: send scraped Meet caption spans so the server can auto-name speakers.
+// Must run after /upload (needs meetingId) and before /transcribe (mapping runs post-transcribe).
+async function uploadCaptionSpans(meetingId) {
+  let spans = captionSpans;
+  if (!spans || spans.length === 0) {
+    // Service worker may have restarted (e.g. recovery path) — fall back to the mirror.
+    const stored = await chrome.storage.local.get('captionSpans');
+    spans = stored.captionSpans || [];
+  }
+  if (!spans.length) return;
+  try {
+    await apiFetch('/captions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ meetingId, spans }),
+    });
+    console.log(`[Finrep] Sent ${spans.length} caption spans for speaker naming`);
+  } catch (e) {
+    console.warn('[Finrep] Caption upload failed (non-blocking):', e.message);
+  }
+}
 
 async function runPipeline(audioBase64) {
   try {
@@ -275,6 +305,9 @@ async function runPipeline(audioBase64) {
       })();
     }
 
+    // Send caption spans (best-effort) before transcription so post-transcribe auto-naming sees them.
+    await uploadCaptionSpans(meetingId);
+
     // Step 2: Transcribe
     await setState('processing', { step: 'transcribing', meetingId });
     const transcribeRes = await fetchWithTimeout(`${API_BASE}/transcribe`, {
@@ -310,6 +343,8 @@ async function runPipeline(audioBase64) {
     await closeOffscreenDocument();
     recordingTabId = null;
     recordingStartTime = null;
+    captionSpans = [];
+    chrome.storage.local.remove('captionSpans');
   }
 }
 
@@ -345,6 +380,10 @@ async function runChunkedPipeline(audioChunks) {
 
     const { meetingId } = uploadData;
     if (!meetingId) throw new Error('Server did not return a meeting ID');
+
+    // Send caption spans (best-effort). For multi-part recordings the server skips caption
+    // auto-mapping, but the spans are still stored for future use / inspection.
+    await uploadCaptionSpans(meetingId);
 
     // Step 2: Transcribe first chunk
     await setState('processing', { step: `transcribing chunk 1/${audioChunks.length}`, meetingId });
@@ -424,6 +463,8 @@ async function runChunkedPipeline(audioChunks) {
     await closeOffscreenDocument();
     recordingTabId = null;
     recordingStartTime = null;
+    captionSpans = [];
+    chrome.storage.local.remove('captionSpans');
   }
 }
 
@@ -641,6 +682,29 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     case 'RECORDING_STARTED':
       console.log('[Finrep] Offscreen confirmed recording started');
+      // Use the audio-recording start as the caption alignment t0, and tell the Meet tab
+      // to enable captions + begin scraping speaker-attributed caption spans.
+      if (message.audioT0) recordingStartTime = message.audioT0;
+      if (recordingTabId) {
+        chrome.tabs.sendMessage(recordingTabId, {
+          type: 'CAPTION_CAPTURE_START',
+          audioT0: message.audioT0 || recordingStartTime,
+        }).catch(() => {});
+      }
+      break;
+
+    case 'CAPTION_SPANS':
+      // Accumulate caption spans from the content script (flushed periodically).
+      if (Array.isArray(message.spans) && message.spans.length > 0) {
+        captionSpans.push(...message.spans);
+        chrome.storage.local.set({ captionSpans }); // mirror for crash recovery
+      }
+      break;
+
+    case 'CAPTION_STATUS':
+      if (message.available === false) {
+        console.warn('[Finrep] Captions unavailable for speaker naming:', message.reason);
+      }
       break;
 
     case 'AUDIO_LEVELS':

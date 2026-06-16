@@ -16,7 +16,6 @@
     "resetModules": true
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.79.0",
     "@azure/storage-blob": "^12.31.0",
     "archiver": "^7.0.1",
     "cors": "^2.8.5",
