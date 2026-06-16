@@ -52,6 +52,24 @@ export const api = {
   transcribe: {
     retranscribe: (meetingId: string, numSpeakers?: number) =>
       req(`/transcribe/retranscribe`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ meetingId, numSpeakers }) }),
+    // Streaming chunked-sync re-transcription with real progress (no diarization).
+    retranscribeStream: (
+      meetingId: string,
+      handlers: {
+        onProgress: (p: { done: number; total: number }) => void
+        onDone: (d: { transcript: string; segmentCount: number }) => void
+        onFailed: (msg: string) => void
+      },
+    ): EventSource => {
+      const es = new EventSource(`${BASE}/transcribe/retranscribe/stream?meetingId=${encodeURIComponent(meetingId)}`)
+      let settled = false
+      const finish = () => { settled = true; es.close() }
+      es.addEventListener('progress', (e) => handlers.onProgress(JSON.parse((e as MessageEvent).data)))
+      es.addEventListener('done', (e) => { handlers.onDone(JSON.parse((e as MessageEvent).data)); finish() })
+      es.addEventListener('failed', (e) => { handlers.onFailed(JSON.parse((e as MessageEvent).data).error); finish() })
+      es.onerror = () => { if (!settled) { handlers.onFailed('Connection lost during transcription'); finish() } }
+      return es
+    },
   },
   analytics: () => req<import('./types').Analytics>(`/analytics`),
   settings: {

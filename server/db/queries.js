@@ -129,6 +129,7 @@ function parseMeetingRow(row) {
     summary: row.summary ? JSON.parse(row.summary) : null,
     participants: row.participants ? JSON.parse(row.participants) : null,
     speakerNames: row.speaker_names ? JSON.parse(row.speaker_names) : null,
+    speakerNamesMeta: row.speaker_names_meta ? JSON.parse(row.speaker_names_meta) : null,
     slackPosted: Boolean(row.slack_posted),
     visibility: row.visibility || 'team',
   };
@@ -210,6 +211,51 @@ async function getSegments(meetingId) {
   }
   stmt.free();
   return results;
+}
+
+async function saveCaptionSpans(meetingId, spans) {
+  const db = await getDb();
+  // Clear existing caption spans for this meeting first
+  db.run(`DELETE FROM caption_spans WHERE meeting_id = ?`, [meetingId]);
+  for (const s of spans) {
+    db.run(
+      `INSERT INTO caption_spans (meeting_id, speaker, text_snippet, t_start_ms, t_end_ms, part_number)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [meetingId, s.speaker || null, (s.textSnippet || '').slice(0, 200), s.tStartMs ?? null, s.tEndMs ?? null, s.partNumber ?? 1]
+    );
+  }
+  saveDb();
+}
+
+async function getCaptionSpans(meetingId) {
+  const db = await getDb();
+  const stmt = db.prepare(
+    `SELECT speaker, text_snippet, t_start_ms, t_end_ms, part_number FROM caption_spans
+     WHERE meeting_id = ? ORDER BY COALESCE(t_start_ms, id)`
+  );
+  stmt.bind([meetingId]);
+  const results = [];
+  while (stmt.step()) {
+    const r = stmt.getAsObject();
+    results.push({
+      speaker: r.speaker,
+      textSnippet: r.text_snippet,
+      tStartMs: r.t_start_ms,
+      tEndMs: r.t_end_ms,
+      partNumber: r.part_number,
+    });
+  }
+  stmt.free();
+  return results;
+}
+
+async function updateSpeakerNamesMeta(id, meta) {
+  const db = await getDb();
+  db.run(
+    `UPDATE meetings SET speaker_names_meta = ?, updated_at = datetime('now') WHERE id = ?`,
+    [meta ? JSON.stringify(meta) : null, id]
+  );
+  saveDb();
 }
 
 async function listTemplates() {
@@ -294,8 +340,11 @@ module.exports = {
   getSettings,
   setSetting,
   updateSpeakerNames,
+  updateSpeakerNamesMeta,
   saveSegments,
   getSegments,
+  saveCaptionSpans,
+  getCaptionSpans,
   updateCalendarData,
   listTemplates,
   getTemplate,

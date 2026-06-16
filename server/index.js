@@ -93,6 +93,7 @@ app.use('/api/analytics', require('./routes/analytics'));
 app.use('/api/kb', require('./routes/kb'));
 app.use('/api/calendar', require('./routes/calendar'));
 app.use('/api/templates', require('./routes/templates'));
+app.use('/api/captions', require('./routes/captions'));
 
 // Health check
 app.get('/api/health', (req, res) => {

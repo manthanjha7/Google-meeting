@@ -304,6 +304,8 @@ async function startRecording(streamId, includeMic = false) {
 
     // Start the first recorder chunk
     startNewRecorderChunk();
+    // t0 for caption alignment: the moment audio recording actually begins.
+    const audioT0 = Date.now();
 
     // Set up auto-chunking: every 55 minutes, finalize current chunk and start a new one
     chunkInterval = setInterval(() => {
@@ -312,7 +314,7 @@ async function startRecording(streamId, includeMic = false) {
     }, CHUNK_DURATION_MS);
 
     console.log(`[Finrep] Recording started with auto-chunking every ${CHUNK_DURATION_MS / 60000} minutes`);
-    chrome.runtime.sendMessage({ type: 'RECORDING_STARTED' });
+    chrome.runtime.sendMessage({ type: 'RECORDING_STARTED', audioT0 });
 
     // Start live transcript preview via Web Speech API (free, no Sarvam cost)
     startSpeechRecognition();

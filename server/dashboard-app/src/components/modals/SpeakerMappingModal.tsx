@@ -138,6 +138,7 @@ export function SpeakerMappingModal({ open, meeting, onClose, onSave, onGetSugge
           ) : (
             currentSpeakers.map((label) => {
               const key = speakerKey(activePart, totalParts, label)
+              const conf = meeting?.speakerNamesMeta?.confidence?.[key]
               return (
                 <div key={key} className="flex items-center gap-3">
                   <span className="text-xs text-muted-foreground w-20 shrink-0 font-mono">{label}</span>
@@ -147,6 +148,11 @@ export function SpeakerMappingModal({ open, meeting, onClose, onSave, onGetSugge
                     onChange={(e) => setNames(prev => ({ ...prev, [key]: e.target.value }))}
                     className="h-7 text-xs"
                   />
+                  {conf != null && (
+                    <span className="text-[10px] text-muted-foreground shrink-0 whitespace-nowrap" title="Auto-detected from Meet captions">
+                      auto · {Math.round(conf * 100)}%
+                    </span>
+                  )}
                 </div>
               )
             })

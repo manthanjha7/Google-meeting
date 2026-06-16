@@ -25,6 +25,7 @@ export function MeetingDetail({ meeting, onUpdated, onDeleted, onSpeakersOpen, o
   const [titleVal, setTitleVal] = useState(meeting.title || meeting.meet_title || '')
   const [seekTo, setSeekTo] = useState<{ secs: number; ts: number } | undefined>()
   const [retranscribing, setRetranscribing] = useState(false)
+  const [transProgress, setTransProgress] = useState<{ done: number; total: number } | null>(null)
   const [ingestingKb, setIngestingKb] = useState(false)
   const audioRef = useRef<HTMLAudioElement>(null)
 
@@ -53,16 +54,29 @@ export function MeetingDetail({ meeting, onUpdated, onDeleted, onSpeakersOpen, o
     }
   }
 
-  const handleRetranscribe = async () => {
+  const handleRetranscribe = () => {
     setRetranscribing(true)
-    try {
-      await api.transcribe.retranscribe(meeting.id)
-      onToast('Retranscription started — refresh in a moment', 'info')
-    } catch {
-      onToast('Retranscription failed', 'error')
-    } finally {
-      setRetranscribing(false)
-    }
+    setTransProgress(null)
+    api.transcribe.retranscribeStream(meeting.id, {
+      onProgress: (p) => setTransProgress(p),
+      onDone: async () => {
+        try {
+          const { meeting: fresh } = await api.meetings.get(meeting.id)
+          onUpdated(fresh)
+          onToast('Transcription complete', 'success')
+        } catch {
+          onToast('Transcribed — refresh to view', 'info')
+        } finally {
+          setRetranscribing(false)
+          setTransProgress(null)
+        }
+      },
+      onFailed: (msg) => {
+        onToast(msg || 'Re-transcription failed', 'error')
+        setRetranscribing(false)
+        setTransProgress(null)
+      },
+    })
   }
 
   const handleSummarize = async (template: string, customPrompt: string, templateId?: string) => {
@@ -179,7 +193,7 @@ export function MeetingDetail({ meeting, onUpdated, onDeleted, onSpeakersOpen, o
         <div className="flex gap-1.5 flex-wrap">
           <Button variant="outline" size="sm" onClick={handleRetranscribe} disabled={retranscribing}>
             {retranscribing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-            Re-transcribe
+            {retranscribing && transProgress ? `Transcribing ${transProgress.done}/${transProgress.total}` : 'Re-transcribe'}
           </Button>
           <Button variant="outline" size="sm" onClick={handleIngestKb} disabled={ingestingKb}>
             {ingestingKb ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Database className="h-3.5 w-3.5" />}
@@ -199,6 +213,21 @@ export function MeetingDetail({ meeting, onUpdated, onDeleted, onSpeakersOpen, o
           <Button variant="outline" size="sm" onClick={() => handleExport('txt')}>Export TXT</Button>
           <Button variant="outline" size="sm" onClick={() => handleExport('json')}>Export JSON</Button>
         </div>
+
+        {/* Transcription progress bar */}
+        {retranscribing && (
+          <div className="space-y-1">
+            <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+              <div
+                className="h-full bg-primary transition-all duration-300"
+                style={{ width: transProgress ? `${Math.round((transProgress.done / transProgress.total) * 100)}%` : '5%' }}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {transProgress ? `Transcribing chunk ${transProgress.done} of ${transProgress.total}…` : 'Preparing audio…'}
+            </p>
+          </div>
+        )}
 
         {/* Audio player */}
         <AudioPlayer

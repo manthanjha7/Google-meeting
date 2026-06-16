@@ -434,7 +434,19 @@ router.get('/:id/speaker-suggestions', async (req, res) => {
 
   try {
     const settings = await getSettings();
-    const suggestions = await detectSpeakerNames(meeting.transcript, settings);
+    // Constrain LLM guesses to the meeting's calendar attendees (already stored), and skip
+    // speakers already identified (e.g. by caption auto-mapping).
+    let candidateNames = [];
+    if (meeting.calendar_attendees) {
+      try {
+        const parsed = JSON.parse(meeting.calendar_attendees);
+        if (Array.isArray(parsed)) candidateNames = parsed.filter(Boolean);
+      } catch { /* ignore malformed attendee JSON */ }
+    }
+    const suggestions = await detectSpeakerNames(meeting.transcript, settings, {
+      candidateNames,
+      alreadyMapped: meeting.speakerNames || {},
+    });
     res.json({ suggestions });
   } catch (err) {
     console.error('Speaker detection error:', err);
